@@ -65,9 +65,9 @@ qos-routing/
 │   ├── 📁 core/              # Temel sınıflar
 │   │   ├── graph_manager.py  # NetworkX işlemleri
 │   │   └── metrics.py        # Fitness fonksiyonları
-│   ├── 📁 ui/                # Arayüz kodları
-│   │   ├── main_window.py
-│   │   └── visualizer.py
+│   ├── 📁 frontend/         # Arayüz kodları
+│   │    
+│   │ 
 │   └── 📁 utils/             # Yardımcı araçlar (Log, Config)
 ├── 📁 tests/                 # Unit testler
 ├── main.py                   # Uygulamayı başlatan dosya
@@ -113,7 +113,7 @@ git commit -m "feat: açıklayıcı mesaj"
 git push origin feat/yeni-ozellik
 ```
 
-5. GitHub/GitLab üzerinden `dev` dalına **Pull Request (PR)** aç.
+5. GitHub üzerinden `dev` dalına **Pull Request (PR)** aç.
 6. Backend Lead veya Algo Lead onaylayınca merge edilir.
 
 ---

@@ -10,7 +10,7 @@
 | **Proje** | QoS Odaklı Çok Amaçlı Rotalama (Meta-Sezgisel ve RL Yaklaşımları) |
 | **Ekip Büyüklüğü** | 9 Kişi |
 | **Süre** | 5 Hafta |
-| **Teslimat Türü** | Masaüstü Simülasyon Yazılımı (Python/PyQt) + Rapor |
+| **Teslimat Türü** | Web arayüzü yazılımı + Rapor |
 
 ### Amaçlar (Goals)
 

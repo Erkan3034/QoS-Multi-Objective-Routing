@@ -1,6 +1,6 @@
-# 🎨 PyQt5 UI Geliştirme Görevleri
+#  PyQt5 UI Geliştirme Görevleri
 
-> **Amaç:** Web (React) arayüzüyle birebir aynı görünüm ve işlevsellik
+> **Amaç:** Projenin Web (React) arayüzüyle birebir aynı görünüm ve işlevsellik
 
 ---
 

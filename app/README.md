@@ -12,7 +12,8 @@ Bu uygulama, web versiyonunun PyQt5 ile yeniden yazılmış halidir.
 ### 1. Virtual Environment Oluştur
 
 ```powershell
-cd pyqt5-desktop
+git clone https://github.com/Erkan3034/QoS-Multi-Objective-Routing.git
+cd app
 python -m venv venv
 
 # Windows PowerShell

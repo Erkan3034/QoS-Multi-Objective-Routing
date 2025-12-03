@@ -1,0 +1,27 @@
+# PyQt5 Desktop Application Requirements
+# QoS Multi-Objective Routing - Desktop Version
+
+# GUI Framework
+PyQt5>=5.15.9
+PyQt5-Qt5>=5.15.2
+PyQt5-sip>=12.11.0
+
+# Graph Library
+networkx>=3.1
+
+# Numerical Computing
+numpy>=1.24.0
+
+# Visualization (PyQt5 compatible)
+pyqtgraph>=0.13.3
+matplotlib>=3.7.0
+
+# Configuration
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+python-dotenv>=1.0.0
+
+# Development
+black>=23.0.0
+flake8>=6.0.0
+

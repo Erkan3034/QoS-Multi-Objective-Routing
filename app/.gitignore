@@ -1,0 +1,103 @@
+# core
+src/core/
+
+# algos 
+src/algorithms/aco.py
+src/algorithms/pso.py
+src/algorithms/q_learning.py
+src/algorithms/sarsa.py
+src/algorithms/simulated_annealing.py
+
+# experiments
+src/experiments/
+
+# services
+src/services/metrics_service.py
+
+# ui
+
+# ==============================================
+# Python Standart
+# ==============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ==============================================
+# Virtual Environment
+# ==============================================
+venv/
+ENV/
+env/
+.venv/
+
+# ==============================================
+# IDE
+# ==============================================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+.settings/
+
+# ==============================================
+# PyQt5 Specific
+# ==============================================
+*.ui.bak
+*.qm
+
+# ==============================================
+# Test & Coverage
+# ==============================================
+.tox/
+.coverage
+.coverage.*
+htmlcov/
+.pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+
+# ==============================================
+# Logs & Temp Files
+# ==============================================
+*.log
+*.tmp
+*.temp
+logs/
+
+# ==============================================
+# OS Specific
+# ==============================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ==============================================
+# Experiment Results (opsiyonel gizleme)
+# ==============================================
+# experiments/results/
+# *.pkl
+# *.json
+
+.gitignore.example

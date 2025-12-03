@@ -49,31 +49,33 @@ gym>=0.26  # RL için (opsiyonel, custom env yazılacaksa gerekmeyebilir)
 
 ---
 
-## 2. Proje Klasör Yapısı (Folder Structure)
+## 🏗️ 2 Proje Yapısı
 
 ```
-qos-routing/
-├── 📁 data/                  # Oluşturulan topoloji JSON dosyaları
-├── 📁 docs/                  # Proje dokümanları
-├── 📁 src/                   # ANA KOD KLASÖRÜ
-│   ├── 📁 algorithms/        # Algoritma modülleri
-│   │   ├── __init__.py
-│   │   ├── dijkstra.py
-│   │   ├── genetic.py
-│   │   ├── aco.py
-│   │   └── rl_agent.py
-│   ├── 📁 core/              # Temel sınıflar
-│   │   ├── graph_manager.py  # NetworkX işlemleri
-│   │   └── metrics.py        # Fitness fonksiyonları
-│   ├── 📁 ui/                # Arayüz kodları
-│   │   ├── main_window.py
-│   │   └── visualizer.py
-│   └── 📁 utils/             # Yardımcı araçlar (Log, Config)
-├── 📁 tests/                 # Unit testler
-├── main.py                   # Uygulamayı başlatan dosya
-└── README.md
+📁pyqt5-desktop/
+├── main.py                 # Ana giriş noktası
+├── requirements.txt        # Python bağımlılıkları
+├── README.md              # Bu dosya
+└── 📁src/
+    ├──📁 core/
+    │   └── config.py      # Konfigürasyon
+    ├──📁 services/
+    │   ├── graph_service.py    # Graf oluşturma
+    │   └── metrics_service.py  # Metrik hesaplama
+    ├──📁 algorithms/
+    │   ├── genetic_algorithm.py
+    │   ├── aco.py
+    │   ├── pso.py
+    │   ├── simulated_annealing.py
+    │   ├── q_learning.py
+    │   └── sarsa.py
+    └──📁 ui/
+        ├── main_window.py     # Ana pencere
+        └──📁 components/
+            ├── graph_widget.py    # Graf görselleştirme
+            ├── control_panel.py   # Kontrol paneli
+            └── results_panel.py   # Sonuç paneli
 ```
-
 ---
 
 ## 3. Git Stratejisi (Branching Model)

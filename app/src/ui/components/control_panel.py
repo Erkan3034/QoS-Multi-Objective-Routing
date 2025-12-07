@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QProgressBar, QFrame
 )
 from PyQt5.QtCore import pyqtSignal, Qt
-from typing import Dict
+from typing import Dict, List, Tuple
 
 
 class ControlPanel(QWidget):
@@ -15,12 +15,15 @@ class ControlPanel(QWidget):
     
     # Sinyaller
     generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
+    load_csv_requested = pyqtSignal()  # CSV yükleme isteği
     optimize_requested = pyqtSignal(str, int, int, dict)  # algorithm, source, dest, weights
     compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
+    demand_selected = pyqtSignal(int, int, int)  # source, dest, demand_mbps
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(280)
+        self.setFixedWidth(300)
+        self._demands: List[Tuple[int, int, int]] = []
         self._setup_ui()
     
     def _setup_ui(self):
@@ -28,10 +31,26 @@ class ControlPanel(QWidget):
         layout = QVBoxLayout(self)
         layout.setSpacing(12)
         
-        # === GRAF OLUŞTURMA ===
-        graph_group = QGroupBox("📊 Graf Oluşturma")
+        # === GRAF VERİSİ ===
+        graph_group = QGroupBox("📊 Graf Verisi")
         graph_group.setStyleSheet(self._group_style())
         graph_layout = QVBoxLayout(graph_group)
+        
+        # CSV'den yükle butonu (önerilen)
+        self.btn_load_csv = QPushButton("📁 Proje Verisini Yükle (CSV)")
+        self.btn_load_csv.setStyleSheet(self._button_style("#10b981"))  # Yeşil
+        self.btn_load_csv.clicked.connect(self._on_load_csv_clicked)
+        self.btn_load_csv.setToolTip("Hocanın verdiği CSV dosyalarından graf yükler")
+        graph_layout.addWidget(self.btn_load_csv)
+        
+        # Ayırıcı
+        graph_layout.addWidget(self._create_separator())
+        
+        # Veya rastgele oluştur bölümü
+        random_label = QLabel("— veya Rastgele Oluştur —")
+        random_label.setAlignment(Qt.AlignCenter)
+        random_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        graph_layout.addWidget(random_label)
         
         # Node sayısı
         node_layout = QHBoxLayout()
@@ -65,7 +84,7 @@ class ControlPanel(QWidget):
         graph_layout.addLayout(seed_layout)
         
         # Generate button
-        self.btn_generate = QPushButton("🔄 Graf Oluştur")
+        self.btn_generate = QPushButton("🔄 Rastgele Graf Oluştur")
         self.btn_generate.setStyleSheet(self._button_style("#3b82f6"))
         self.btn_generate.clicked.connect(self._on_generate_clicked)
         graph_layout.addWidget(self.btn_generate)
@@ -76,6 +95,36 @@ class ControlPanel(QWidget):
         opt_group = QGroupBox("⚙️ Optimizasyon")
         opt_group.setStyleSheet(self._group_style())
         opt_layout = QVBoxLayout(opt_group)
+        
+        # Talep seçici (CSV yüklendiğinde aktif)
+        demand_layout = QVBoxLayout()
+        demand_header = QHBoxLayout()
+        self.label_demands = QLabel("📋 Talep Çiftleri:")
+        self.label_demands.setStyleSheet("color: #fbbf24; font-weight: bold;")
+        demand_header.addWidget(self.label_demands)
+        demand_layout.addLayout(demand_header)
+        
+        self.combo_demands = QComboBox()
+        self.combo_demands.setStyleSheet(self._input_style())
+        self.combo_demands.currentIndexChanged.connect(self._on_demand_selected)
+        self.combo_demands.setToolTip("Hocanın belirlediği kaynak-hedef çiftlerinden birini seçin")
+        demand_layout.addWidget(self.combo_demands)
+        
+        # Başlangıçta gizle
+        self.label_demands.hide()
+        self.combo_demands.hide()
+        
+        opt_layout.addLayout(demand_layout)
+        
+        # Manuel seçim ayırıcı
+        self.manual_separator = self._create_separator()
+        self.manual_label = QLabel("— veya Manuel Seçim —")
+        self.manual_label.setAlignment(Qt.AlignCenter)
+        self.manual_label.setStyleSheet("color: #64748b; font-size: 11px;")
+        self.manual_separator.hide()
+        self.manual_label.hide()
+        opt_layout.addWidget(self.manual_separator)
+        opt_layout.addWidget(self.manual_label)
         
         # Source
         src_layout = QHBoxLayout()
@@ -303,6 +352,18 @@ class ControlPanel(QWidget):
             self.spin_seed.value()
         )
     
+    def _on_load_csv_clicked(self):
+        """CSV'den yükle butonuna tıklandı."""
+        self.load_csv_requested.emit()
+    
+    def _on_demand_selected(self, index: int):
+        """Talep çifti seçildiğinde."""
+        if index >= 0 and index < len(self._demands):
+            src, dst, demand = self._demands[index]
+            self.spin_source.setValue(src)
+            self.spin_dest.setValue(dst)
+            self.demand_selected.emit(src, dst, demand)
+    
     def _on_optimize_clicked(self):
         """Optimize butonuna tıklandı."""
         self.optimize_requested.emit(
@@ -345,4 +406,44 @@ class ControlPanel(QWidget):
     def set_destination(self, node: int):
         """Hedef düğümü ayarla."""
         self.spin_dest.setValue(node)
+    
+    def set_demands(self, demands: List[Tuple[int, int, int]]):
+        """
+        Talep çiftlerini ayarla ve göster.
+        
+        Args:
+            demands: [(source, destination, demand_mbps), ...] listesi
+        """
+        self._demands = demands
+        self.combo_demands.clear()
+        
+        if demands:
+            for src, dst, demand in demands:
+                self.combo_demands.addItem(f"#{len(self.combo_demands) + 1}: {src} → {dst} ({demand} Mbps)")
+            
+            # Talep seçiciyi göster
+            self.label_demands.show()
+            self.combo_demands.show()
+            self.manual_separator.show()
+            self.manual_label.show()
+            
+            # İlk talebi seç
+            self.combo_demands.setCurrentIndex(0)
+        else:
+            self.hide_demands()
+    
+    def hide_demands(self):
+        """Talep seçiciyi gizle."""
+        self.label_demands.hide()
+        self.combo_demands.hide()
+        self.manual_separator.hide()
+        self.manual_label.hide()
+        self._demands = []
+    
+    def get_current_demand(self) -> Tuple[int, int, int]:
+        """Seçili talebi döndür (source, dest, demand_mbps)."""
+        idx = self.combo_demands.currentIndex()
+        if idx >= 0 and idx < len(self._demands):
+            return self._demands[idx]
+        return (self.spin_source.value(), self.spin_dest.value(), 0)
 

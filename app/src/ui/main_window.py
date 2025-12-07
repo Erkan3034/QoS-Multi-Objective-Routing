@@ -2,9 +2,10 @@
 Ana Pencere - QoS Routing Desktop Application
 """
 import sys
+import os
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
-    QMessageBox, QStatusBar, QApplication
+    QMessageBox, QStatusBar, QApplication, QFileDialog
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QFont
@@ -16,6 +17,10 @@ from src.ui.components.results_panel import ResultsPanel, OptimizationResult
 from src.services.graph_service import GraphService
 from src.services.metrics_service import MetricsService
 from src.algorithms import ALGORITHMS
+
+
+# Proje kök dizini (graph_data klasörünü bulmak için)
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 
 
 class OptimizationWorker(QThread):
@@ -185,8 +190,10 @@ class MainWindow(QMainWindow):
         """Sinyalleri bağla."""
         # Control panel signals
         self.control_panel.generate_graph_requested.connect(self._on_generate_graph)
+        self.control_panel.load_csv_requested.connect(self._on_load_csv)
         self.control_panel.optimize_requested.connect(self._on_optimize)
         self.control_panel.compare_requested.connect(self._on_compare)
+        self.control_panel.demand_selected.connect(self._on_demand_selected)
         
         # Graph widget signals
         self.graph_widget.node_clicked.connect(self._on_node_clicked)
@@ -203,6 +210,7 @@ class MainWindow(QMainWindow):
             
             self.graph_widget.set_graph(graph, positions)
             self.control_panel.set_node_range(n_nodes)
+            self.control_panel.hide_demands()  # Rastgele graf için talep yok
             self.results_panel.clear()
             
             info = self.graph_service.get_graph_info()
@@ -217,6 +225,67 @@ class MainWindow(QMainWindow):
         
         finally:
             self.control_panel.set_loading(False)
+    
+    def _on_load_csv(self):
+        """CSV dosyalarından graf yükle."""
+        # Önce varsayılan dizini dene (proje kökündeki graph_data)
+        default_data_dir = os.path.join(PROJECT_ROOT, "graph_data")
+        
+        if os.path.exists(default_data_dir):
+            data_dir = default_data_dir
+        else:
+            # Kullanıcıdan klasör seçmesini iste
+            data_dir = QFileDialog.getExistingDirectory(
+                self,
+                "graph_data Klasörünü Seçin",
+                PROJECT_ROOT,
+                QFileDialog.ShowDirsOnly
+            )
+            if not data_dir:
+                return
+        
+        self.status_bar.showMessage("CSV dosyaları yükleniyor...")
+        self.control_panel.set_loading(True)
+        
+        try:
+            self.graph_service = GraphService()
+            graph = self.graph_service.load_from_csv(data_dir)
+            positions = self.graph_service.get_node_positions()
+            
+            self.graph_widget.set_graph(graph, positions)
+            
+            info = self.graph_service.get_graph_info()
+            n_nodes = info['node_count']
+            
+            self.control_panel.set_node_range(n_nodes)
+            
+            # Talep çiftlerini yükle
+            demands = self.graph_service.get_demand_pairs_for_ui()
+            self.control_panel.set_demands(demands)
+            
+            self.results_panel.clear()
+            
+            self.status_bar.showMessage(
+                f"✓ CSV yüklendi: {info['node_count']} düğüm, {info['edge_count']} kenar, "
+                f"{info.get('demand_count', 0)} talep çifti"
+            )
+            
+        except FileNotFoundError as e:
+            QMessageBox.critical(self, "Dosya Bulunamadı", str(e))
+            self.status_bar.showMessage("CSV yükleme hatası")
+        except Exception as e:
+            QMessageBox.critical(self, "Hata", f"CSV yükleme hatası: {str(e)}")
+            self.status_bar.showMessage("Hata oluştu")
+        
+        finally:
+            self.control_panel.set_loading(False)
+    
+    def _on_demand_selected(self, source: int, dest: int, demand_mbps: int):
+        """Talep çifti seçildiğinde."""
+        self.graph_widget.set_source_destination(source, dest)
+        self.status_bar.showMessage(
+            f"Talep seçildi: {source} → {dest} ({demand_mbps} Mbps)"
+        )
     
     def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict):
         """Optimizasyon çalıştır."""

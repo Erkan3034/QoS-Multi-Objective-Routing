@@ -1,442 +1,380 @@
-#  PyQt5 UI Geliştirme Görevleri
+# 🎨 PyQt5 UI Geliştirme Görevleri
 
-> **Amaç:** Projenin Web (React) arayüzüyle birebir aynı görünüm ve işlevsellik
+> **Son Güncelleme:** 2025-12-07
+> **Amaç:** Fonksiyonel ve kullanıcı dostu bir masaüstü arayüzü
 
 ---
 
-## 📊 Mevcut Durum vs Hedef
+## 📊 Mevcut Durum
 
-| Özellik | Web (React) | PyQt5 Mevcut | Durum |
-|---------|-------------|--------------|-------|
-| Header (Logo/Başlık) | ✅ | ❌ | 🔴 Eksik |
-| Graf Bilgi Göstergesi | ✅ | ❌ | 🔴 Eksik |
-| Graf Görselleştirme | react-force-graph | PyQtGraph | 🟡 Farklı |
-| Force-directed Layout | ✅ Animasyonlu | ✅ Statik | 🟡 Kısmen |
-| Düğüm Hover Tooltip | ✅ Detaylı | ❌ | 🔴 Eksik |
-| Kenar Hover Tooltip | ✅ Detaylı | ❌ | 🔴 Eksik |
-| Path Parçacık Animasyonu | ✅ | ❌ | 🔴 Eksik |
-| Düğüm Glow Efekti | ✅ | ❌ | 🔴 Eksik |
-| Kontrol Paneli | ✅ | ✅ | ✅ Tamam |
-| Sonuç Paneli | ✅ | ✅ | ✅ Tamam |
-| Karşılaştırma Tablosu | ✅ | ✅ | ✅ Tamam |
-| **Deney Paneli** | ✅ ExperimentsPanel | ❌ | 🔴 Eksik |
-| Footer | ✅ | StatusBar | 🟡 Farklı |
-| Dark Theme | ✅ Tailwind | ✅ QPalette | ✅ Tamam |
-| Responsive Layout | ✅ Flex | ❌ Sabit | 🔴 Eksik |
-| Zoom Kontrolleri | ✅ | ✅ | ✅ Tamam |
-| Fullscreen Modu | ✅ | ❌ | 🔴 Eksik |
-| Etiket Göster/Gizle | ✅ | ❌ | 🔴 Eksik |
-| Legend (Açıklama) | ✅ | ❌ | 🔴 Eksik |
-| Path Bilgi Kutusu | ✅ | ❌ | 🔴 Eksik |
+| Özellik | Durum | Notlar |
+|---------|-------|--------|
+| Karanlık Tema | ✅ Tamamlandı | QPalette ile slate renkleri |
+| Ana Pencere Layout | ✅ Tamamlandı | 3 panel: kontrol, graf, sonuçlar |
+| Kontrol Paneli | ✅ Tamamlandı | Parametre ayarları |
+| CSV Yükleme Butonu | ✅ Tamamlandı | Hocanın verisini yükler |
+| Demand Seçici | ✅ Tamamlandı | 30 talep çiftinden seçim |
+| Graf Görselleştirme | ✅ Tamamlandı | PyQtGraph, 250+ düğüm |
+| Sonuç Paneli | ✅ Tamamlandı | Tek sonuç ve karşılaştırma |
+| Zoom Kontrolleri | ✅ Tamamlandı | +, -, Fit butonları |
+| Status Bar | ✅ Tamamlandı | Durum mesajları |
+| Header | ❌ Eksik | Logo ve proje bilgisi |
+| Footer | ❌ Eksik | Algoritma listesi |
+| Deney Paneli | ❌ Eksik | Toplu test çalıştırma |
+| Tooltip'ler | ❌ Eksik | Düğüm/kenar bilgisi |
+| Legend | ❌ Eksik | Renk açıklamaları |
+| Path Animasyonu | ❌ Eksik | Parçacık efekti |
+| Fullscreen | ❌ Eksik | Graf tam ekran |
+
+---
+
+## ✅ TAMAMLANAN ÖZELLİKLER
+
+### 1. CSV Veri Yükleme (Yeni Eklendi)
+
+**Dosya:** `src/ui/components/control_panel.py`
+
+```
+┌─────────────────────────────────────┐
+│ 📁 Proje Verisini Yükle (CSV)       │  ← Yeşil buton
+├─────────────────────────────────────┤
+│ — veya Rastgele Oluştur —           │
+│ Düğüm (n): [250]                    │
+│ Olasılık (p): [0.4]                 │
+│ Seed: [42]                          │
+│ 🔄 Rastgele Graf Oluştur            │
+└─────────────────────────────────────┘
+```
+
+**Özellikler:**
+- [x] CSV yükleme butonu (yeşil, öne çıkarılmış)
+- [x] `graph_data/` klasöründen otomatik yükleme
+- [x] NodeData, EdgeData, DemandData parsing
+- [x] Yükleme sonrası graf bilgisi gösterimi
+
+---
+
+### 2. Demand Seçici (Yeni Eklendi)
+
+**Dosya:** `src/ui/components/control_panel.py`
+
+```
+┌─────────────────────────────────────┐
+│ 📋 Talep Çiftleri:                  │
+│ [#1: 8 → 44 (200 Mbps)         ▼]  │
+├─────────────────────────────────────┤
+│ — veya Manuel Seçim —               │
+│ Kaynak (S): [8]                     │
+│ Hedef (D): [44]                     │
+└─────────────────────────────────────┘
+```
+
+**Özellikler:**
+- [x] ComboBox ile 30 talep çifti
+- [x] Format: `#N: kaynak → hedef (bandwidth Mbps)`
+- [x] Seçim yapınca source/dest otomatik güncellenir
+- [x] Graf üzerinde kaynak/hedef işaretlenir
+- [x] CSV yüklenmediğinde gizli kalır
+
+---
+
+### 3. Graf Görselleştirme (Güncellendi)
+
+**Dosya:** `src/ui/components/graph_widget.py`
+
+**Özellikler:**
+- [x] PyQtGraph ile performanslı render
+- [x] 12,452 kenar sorunsuz gösterim
+- [x] Kaynak düğüm: Yeşil, büyük (20px)
+- [x] Hedef düğüm: Kırmızı, büyük (20px)
+- [x] Path düğümleri: Amber, orta (14px)
+- [x] Diğer düğümler: Gri, küçük (8px)
+- [x] Path kenarları: Amber, kalın (4px)
+- [x] Diğer kenarlar: Gri, ince (0.5px)
+- [x] Zoom in/out/fit butonları
+- [x] Düğüme tıklama (kaynak/hedef seçimi)
+- [x] Python 3.13 + numpy uyumluluğu (np.nan kullanımı)
 
 ---
 
 ## 🔴 KRİTİK EKSİKLER (Öncelik 1)
 
-### 1. Header Bileşeni
+### 1. Experiments Panel (Deney Paneli)
 
-**Dosya:** `src/ui/components/header_widget.py`
+**Dosya:** `src/ui/components/experiments_panel.py` (Yeni oluşturulacak)
 
-```python
-class HeaderWidget(QWidget):
-    """
-    Header bileşeni - Logo, başlık ve graf bilgileri gösterir.
-    
-    Görünüm:
-    ┌─────────────────────────────────────────────────────────────────┐
-    │ [Logo] QoS Routing Optimizer          Düğüm: 250 | Kenar: 12450 │
-    │        BSM307 -bBilgisayar Ağları                   [Bağlı ✓]   │
-    └─────────────────────────────────────────────────────────────────┘
-    """
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(60)
-        # Logo (gradient ikon)
-        # Başlık ve alt başlık
-        # Graf bilgileri (düğüm, kenar sayısı)
-        # Bağlantı durumu badge
+```
+┌─────────────────────────────────────┐
+│ 🧪 Deneyler                         │
+├─────────────────────────────────────┤
+│ Test Sayısı:    [20        ]        │
+│ Tekrar Sayısı:  [5         ]        │
+│                                     │
+│ Algoritmalar:                       │
+│ [x] Genetic Algorithm               │
+│ [x] Ant Colony (ACO)                │
+│ [x] Particle Swarm (PSO)            │
+│ [x] Simulated Annealing             │
+│ [x] Q-Learning                      │
+│ [x] SARSA                           │
+│                                     │
+│ [▶️ Deneyleri Çalıştır           ]  │
+│                                     │
+│ ████████████░░░░░░░░ 60%            │
+│ Test 12/20 - ACO çalışıyor...       │
+├─────────────────────────────────────┤
+│ [📄 CSV Export] [📋 JSON Export]    │
+└─────────────────────────────────────┘
 ```
 
-**Gerekli Özellikler:**
-- [ ] Logo ikonu (gradient arka plan)
-- [ ] "QoS Routing Optimizer" başlığı
-- [ ] "BSM307 - Bilgisayar Ağları Projesi" alt başlığı
-- [ ] Düğüm sayısı göstergesi
-- [ ] Kenar sayısı göstergesi
-- [ ] Bağlantı durumu badge'i (yeşil/kırmızı)
-
----
-
-### 2. Experiments Panel (Deney Paneli)
-
-**Dosya:** `src/ui/components/experiments_panel.py`
-
-```python
-class ExperimentsPanel(QWidget):
-    """
-    Toplu deney çalıştırma paneli.
-    
-    Özellikler:
-    - Predefined test case'leri çalıştırma
-    - n_tests ve n_repeats ayarları
-    - Progress bar
-    - Sonuç export (CSV/JSON)
-    """
-    
-    # Sinyaller
-    run_experiments_requested = pyqtSignal(int, int)  # n_tests, n_repeats
-    export_requested = pyqtSignal(str)  # format
-```
-
-**Gerekli Özellikler:**
-- [ ] Test sayısı spinbox (varsayılan: 20)
-- [ ] Tekrar sayısı spinbox (varsayılan: 5)
+**Yapılacaklar:**
+- [ ] ExperimentsPanel widget oluştur
+- [ ] Test sayısı SpinBox (min: 1, max: 100, default: 20)
+- [ ] Tekrar sayısı SpinBox (min: 1, max: 20, default: 5)
+- [ ] Algoritma seçim checkboxları (6 adet)
 - [ ] "Deneyleri Çalıştır" butonu
 - [ ] Progress bar (deney ilerlemesi)
-- [ ] Sonuç özeti label
-- [ ] "CSV Export" butonu
-- [ ] "JSON Export" butonu
+- [ ] Durum label (hangi test, hangi algoritma)
+- [ ] CSV/JSON export butonları
+- [ ] main_window.py'ye entegrasyon
+- [ ] experiment_runner.py ile bağlantı
+
+**Sinyaller:**
+```python
+run_experiments_requested = pyqtSignal(int, int, list)  # n_tests, n_repeats, algorithms
+export_csv_requested = pyqtSignal()
+export_json_requested = pyqtSignal()
+```
 
 ---
 
-### 3. Graf Görselleştirme İyileştirmeleri
+### 2. Header Bileşeni
 
-**Dosya:** `src/ui/components/graph_widget.py`
+**Dosya:** `src/ui/components/header_widget.py` (Yeni oluşturulacak)
 
-#### 3.1 Düğüm Hover Tooltip
-
-```python
-def _create_tooltip(self, node_id: int) -> str:
-    """
-    Düğüm tooltip içeriği.
-    
-    Görünüm:
-    ┌──────────────────────┐
-    │ Node 42              │
-    │ Gecikme: 1.23ms      │
-    │ Güvenilirlik: 98.5%  │
-    └──────────────────────┘
-    """
-    node = self.graph.nodes[node_id]
-    return f"""
-    <b>Node {node_id}</b><br>
-    Gecikme: {node['processing_delay']:.2f}ms<br>
-    Güvenilirlik: {node['reliability']*100:.1f}%
-    """
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ [🔷] QoS Routing Optimizer          Düğüm: 250 | Kenar: 12,452 │
+│      BSM307 - Bilgisayar Ağları                    [Bağlı ✓]   │
+└─────────────────────────────────────────────────────────────────┘
 ```
 
-**Gerekli Özellikler:**
-- [ ] Düğüm hover'da tooltip göster
-- [ ] Kenar hover'da tooltip göster (bandwidth, delay, reliability)
-- [ ] Tooltip styling (dark theme)
-
-#### 3.2 Parçacık Animasyonu (Path üzerinde)
-
-```python
-class PathParticle:
-    """Yol üzerinde hareket eden parçacık."""
-    def __init__(self, path, speed=0.006):
-        self.path = path
-        self.position = 0.0
-        self.speed = speed
-    
-    def update(self):
-        self.position += self.speed
-        if self.position >= len(self.path) - 1:
-            self.position = 0.0
-        return self.get_coordinates()
-```
-
-**Gerekli Özellikler:**
-- [ ] Path boyunca hareket eden parçacıklar
-- [ ] QTimer ile animasyon güncelleme
-- [ ] Parçacık sayısı: 4 (web'deki gibi)
-- [ ] Parçacık rengi: amber (#fcd34d)
-
-#### 3.3 Glow Efekti
-
-```python
-def _draw_node_glow(self, painter, x, y, size, color):
-    """Düğüm etrafında glow efekti."""
-    # Blur efekti için birden fazla daire çiz
-    for i in range(3):
-        alpha = 100 - i * 30
-        painter.setBrush(QColor(color.red(), color.green(), color.blue(), alpha))
-        painter.drawEllipse(x - size - i*2, y - size - i*2, 
-                           (size + i*2) * 2, (size + i*2) * 2)
-```
-
-**Gerekli Özellikler:**
-- [ ] Kaynak düğüm için yeşil glow
-- [ ] Hedef düğüm için kırmızı glow
-- [ ] Path düğümleri için amber glow
+**Yapılacaklar:**
+- [ ] HeaderWidget sınıfı oluştur
+- [ ] Logo ikonu (gradient veya basit ikon)
+- [ ] Ana başlık: "QoS Routing Optimizer"
+- [ ] Alt başlık: "BSM307 - Bilgisayar Ağları Projesi"
+- [ ] Düğüm sayısı göstergesi
+- [ ] Kenar sayısı göstergesi
+- [ ] Bağlantı durumu badge (is_connected)
+- [ ] Graf yüklendiğinde güncelleme
 
 ---
 
-### 4. Legend (Açıklama) Paneli
+### 3. Sonuç Export
 
-**Dosya:** `src/ui/components/graph_widget.py` içinde
+**Dosya:** `src/ui/components/results_panel.py` (Güncelleme)
 
-```python
-class LegendWidget(QWidget):
-    """
-    Graf açıklaması.
-    
-    Görünüm:
-    ┌────────────────────────────────┐
-    │ [●] Kaynak  [●] Hedef  [●] Yol │
-    └────────────────────────────────┘
-    """
-```
-
-**Gerekli Özellikler:**
-- [ ] Kaynak (yeşil daire + "S" label)
-- [ ] Hedef (kırmızı daire + "D" label)
-- [ ] Yol düğümleri (amber daire)
-- [ ] Diğer düğümler (gri daire)
-- [ ] Glass morphism stil
-
----
-
-### 5. Path Bilgi Kutusu
-
-**Dosya:** `src/ui/components/graph_widget.py` içinde
-
-```python
-class PathInfoWidget(QWidget):
-    """
-    Bulunan yol bilgisi.
-    
-    Görünüm:
-    ┌─────────────────────────────────────┐
-    │ Bulunan Yol                         │
-    │ 5 hop: 0 → 23 → 45 → ... → 249     │
-    └─────────────────────────────────────┘
-    """
-```
-
-**Gerekli Özellikler:**
-- [ ] Hop sayısı
-- [ ] Kısaltılmış yol gösterimi (ilk 5 + son 1)
-- [ ] Sol üst köşede konumlandırma
-- [ ] Glass morphism stil
+**Yapılacaklar:**
+- [ ] "CSV Export" butonu ekle
+- [ ] "JSON Export" butonu ekle
+- [ ] Karşılaştırma tablosunu dışa aktarma
+- [ ] Dosya kaydetme dialogu
 
 ---
 
 ## 🟠 ÖNEMLİ EKSİKLER (Öncelik 2)
 
-### 6. Fullscreen Modu
+### 4. Tooltip'ler
 
-```python
-def toggle_fullscreen(self):
-    """Graf widget'ını fullscreen yap."""
-    if self.isFullScreen():
-        self.showNormal()
-    else:
-        self.showFullScreen()
+**Dosya:** `src/ui/components/graph_widget.py` (Güncelleme)
+
+**Düğüm Tooltip:**
+```
+┌──────────────────────┐
+│ Node 42              │
+│ Gecikme: 1.23 ms     │
+│ Güvenilirlik: 98.5%  │
+└──────────────────────┘
 ```
 
-**Gerekli Özellikler:**
-- [ ] Fullscreen toggle butonu (sağ üst)
-- [ ] ESC ile çıkış
-- [ ] Fullscreen'de "ESC ile çık" ipucu
+**Kenar Tooltip:**
+```
+┌─────────────────────────┐
+│ Edge 42 → 67            │
+│ Bant genişliği: 500 Mbps│
+│ Gecikme: 8.5 ms         │
+│ Güvenilirlik: 97.2%     │
+└─────────────────────────┘
+```
+
+**Yapılacaklar:**
+- [ ] Düğüm hover event'i yakala
+- [ ] QToolTip ile bilgi göster
+- [ ] Kenar hover (daha zor, öncelik düşük)
 
 ---
 
-### 7. Etiket Göster/Gizle Toggle
+### 5. Legend (Açıklama)
 
-```python
-class GraphWidget:
-    def toggle_labels(self):
-        """Tüm düğüm etiketlerini göster/gizle."""
-        self.show_all_labels = not self.show_all_labels
-        self._redraw()
+**Dosya:** `src/ui/components/graph_widget.py` içinde
+
+```
+┌────────────────────────────────────┐
+│ ● Kaynak  ● Hedef  ● Yol  ● Diğer │
+└────────────────────────────────────┘
 ```
 
-**Gerekli Özellikler:**
-- [ ] Toggle butonu (sağ üst, zoom butonlarının altında)
-- [ ] Aktif durumda mavi highlight
-- [ ] Default: Sadece özel düğümler (S, D, path)
+**Yapılacaklar:**
+- [ ] Legend widget oluştur (graph_widget içinde)
+- [ ] Sol alt köşede konumlandır
+- [ ] Renkli daireler + etiketler
+- [ ] Yarı saydam arka plan
 
 ---
 
-### 8. Footer Bileşeni
+### 6. Path Bilgi Kutusu
 
-**Dosya:** `src/ui/components/footer_widget.py`
+**Dosya:** `src/ui/components/graph_widget.py` içinde
 
-```python
-class FooterWidget(QWidget):
-    """
-    Footer - Algoritma listesi ve copyright.
-    
-    Görünüm:
-    ┌─────────────────────────────────────────────────────────────────┐
-    │ BSM307 QoS Routing • GA • ACO • PSO • SA • Q-Learning • SARSA  │
-    └─────────────────────────────────────────────────────────────────┘
-    """
+```
+┌─────────────────────────────────────┐
+│ 📍 Bulunan Yol                      │
+│ 5 hop: 8 → 23 → 67 → 156 → 44      │
+└─────────────────────────────────────┘
 ```
 
-**Gerekli Özellikler:**
-- [ ] Proje adı
+**Yapılacaklar:**
+- [ ] Path info widget oluştur
+- [ ] Sol üst köşede konumlandır
+- [ ] Hop sayısı göster
+- [ ] Yolu kısaltarak göster (max 5 düğüm + ...)
+
+---
+
+## 🟢 DÜŞÜK ÖNCELİK (Öncelik 3)
+
+### 7. Footer Bileşeni
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│ BSM307 QoS Routing • GA • ACO • PSO • SA • Q-Learning • SARSA  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+- [ ] FooterWidget oluştur
 - [ ] Algoritma listesi (• ile ayrılmış)
-- [ ] Glass morphism border-top
 - [ ] Ortalanmış metin
 
 ---
 
-### 9. Responsive Layout
+### 8. Fullscreen Modu
 
-```python
-def resizeEvent(self, event):
-    """Pencere boyutu değiştiğinde layout ayarla."""
-    width = event.size().width()
-    
-    if width < 1000:
-        # Dar ekran - panel'ları gizle veya küçült
-        self.control_panel.setFixedWidth(220)
-        self.results_panel.setFixedWidth(260)
-    else:
-        # Geniş ekran
-        self.control_panel.setFixedWidth(280)
-        self.results_panel.setFixedWidth(320)
-```
-
-**Gerekli Özellikler:**
-- [ ] Minimum pencere boyutu: 1000x600
-- [ ] Panel genişlikleri dinamik
-- [ ] Graph widget stretch
+- [ ] Graf için fullscreen butonu
+- [ ] ESC ile çıkış
+- [ ] İpucu mesajı
 
 ---
 
-## 🟡 İYİLEŞTİRMELER (Öncelik 3)
+### 9. Path Animasyonu
 
-### 10. Kenar Hover Efekti
-
-```python
-def _on_edge_hover(self, u, v):
-    """Kenar üzerine gelince highlight."""
-    # Kenar kalınlığını artır
-    # Tooltip göster
-```
+- [ ] Parçacık efekti (QTimer ile)
+- [ ] Path boyunca hareket
+- [ ] Amber renk (#fcd34d)
 
 ---
 
-### 11. Düğüm Drag & Drop
+### 10. Glow Efekti
 
-```python
-def _enable_node_drag(self):
-    """Düğümleri sürükleyerek pozisyon değiştir."""
-    # Mouse press/move/release event'leri
-```
+- [ ] Kaynak düğüm yeşil glow
+- [ ] Hedef düğüm kırmızı glow
+- [ ] Path düğümleri amber glow
 
 ---
 
-### 12. Zoom Animasyonu
-
-```python
-def _animated_zoom(self, factor, duration_ms=300):
-    """Smooth zoom animasyonu."""
-    # QPropertyAnimation kullan
-```
-
----
-
-### 13. Graf Export
-
-```python
-def export_graph_image(self, filename: str):
-    """Grafı PNG/SVG olarak kaydet."""
-    # QPixmap veya SVG generator
-```
-
----
-
-## 📁 Dosya Yapısı (Hedef)
+## 📁 Dosya Yapısı
 
 ```
 src/ui/
 ├── __init__.py
-├── main_window.py
-├── styles.py                  # Ortak stiller (QSS)
+├── main_window.py              # ✅ Ana pencere
+├── styles.py                   # 📝 TODO: Ortak stiller
 └── components/
     ├── __init__.py
-    ├── header_widget.py       # 🆕 Yeni
-    ├── footer_widget.py       # 🆕 Yeni
-    ├── graph_widget.py        # ✏️ Güncelleme
-    ├── control_panel.py       # ✅ Mevcut
-    ├── results_panel.py       # ✅ Mevcut
-    ├── experiments_panel.py   # 🆕 Yeni
-    ├── legend_widget.py       # 🆕 Yeni
-    └── path_info_widget.py    # 🆕 Yeni
+    ├── control_panel.py        # ✅ Kontrol paneli + CSV + Demand
+    ├── graph_widget.py         # ✅ Graf görselleştirme
+    ├── results_panel.py        # ✅ Sonuç paneli
+    ├── header_widget.py        # 🆕 TODO: Header
+    ├── footer_widget.py        # 🆕 TODO: Footer
+    └── experiments_panel.py    # 🆕 TODO: Deney paneli
 ```
 
 ---
 
-## ✅ Tamamlama Kontrol Listesi
+## 🎨 Renk Paleti
 
-### Kritik (Deadline: ...)
-- [ ] Header bileşeni
-- [ ] Experiments Panel
-- [ ] Düğüm tooltip
-- [ ] Kenar tooltip
-- [ ] Path parçacık animasyonu
-- [ ] Legend
-
-### Önemli
-- [ ] Glow efekti
-- [ ] Fullscreen modu
-- [ ] Etiket toggle
-- [ ] Footer
-- [ ] Path bilgi kutusu
-
-### İsteğe Bağlı
-- [ ] Responsive layout
-- [ ] Kenar hover efekti
-- [ ] Düğüm drag & drop
-- [ ] Zoom animasyonu
-- [ ] Graf export
-
----
-
-## 🎨 Renk Paleti (Tailwind → Qt)
-
-| Tailwind | Hex | Qt Kullanım |
-|----------|-----|-------------|
-| slate-900 | #0f172a | Ana arka plan |
-| slate-800 | #1e293b | Panel arka plan |
-| slate-700 | #334155 | Border |
-| slate-600 | #475569 | İkincil düğümler |
-| slate-400 | #94a3b8 | İkincil metin |
-| slate-200 | #e2e8f0 | Ana metin |
-| green-500 | #22c55e | Kaynak düğüm |
-| green-300 | #86efac | Kaynak glow |
-| red-500 | #ef4444 | Hedef düğüm |
-| red-300 | #fca5a5 | Hedef glow |
-| amber-500 | #f59e0b | Path düğümler |
-| amber-300 | #fcd34d | Path glow/parçacık |
-| blue-500 | #3b82f6 | Butonlar, link |
-| purple-500 | #8b5cf6 | Optimize butonu |
-| pink-500 | #ec4899 | Karşılaştır butonu |
+| Kullanım | Renk | Hex |
+|----------|------|-----|
+| Ana arka plan | Slate 900 | `#0f172a` |
+| Panel arka plan | Slate 800 | `#1e293b` |
+| Border | Slate 700 | `#334155` |
+| İkincil metin | Slate 400 | `#94a3b8` |
+| Ana metin | Slate 200 | `#e2e8f0` |
+| Kaynak düğüm | Green 500 | `#22c55e` |
+| Hedef düğüm | Red 500 | `#ef4444` |
+| Path düğümler | Amber 500 | `#f59e0b` |
+| Normal düğümler | Slate 600 | `#475569` |
+| Graf oluştur | Blue 500 | `#3b82f6` |
+| Optimize et | Purple 500 | `#8b5cf6` |
+| Karşılaştır | Pink 500 | `#ec4899` |
+| CSV yükle | Green 500 | `#10b981` |
 
 ---
 
 ## 📏 Boyutlar
 
-| Eleman | Web | PyQt5 Hedef |
-|--------|-----|-------------|
-| Header yüksekliği | ~56px | 60px |
-| Footer yüksekliği | ~32px | 30px |
-| Sol panel genişliği | 320px (w-80) | 280px |
-| Sağ panel genişliği | 320px (w-80) | 320px |
-| Düğüm boyutu (normal) | 4px | 8px |
-| Düğüm boyutu (S/D) | 14px | 20px |
-| Düğüm boyutu (path) | 10px | 14px |
-| Kenar kalınlığı (normal) | 0.5px | 0.5px |
-| Kenar kalınlığı (path) | 5px | 4px |
+| Eleman | Değer |
+|--------|-------|
+| Minimum pencere | 1200 x 800 px |
+| Header yüksekliği | 60 px |
+| Footer yüksekliği | 30 px |
+| Sol panel genişliği | 300 px |
+| Sağ panel genişliği | 320 px |
+| Düğüm boyutu (normal) | 8 px |
+| Düğüm boyutu (S/D) | 20 px |
+| Düğüm boyutu (path) | 14 px |
+| Kenar kalınlığı (normal) | 0.5 px |
+| Kenar kalınlığı (path) | 4 px |
 
 ---
 
-*Doküman Versiyonu: 1.0*
-*Oluşturma Tarihi: 3 Aralık 2025*
+## ✅ Tamamlanma Durumu
 
+```
+Temel UI:              ████████████████████ 100%
+CSV Yükleme:           ████████████████████ 100%
+Demand Seçici:         ████████████████████ 100%
+Graf Görselleştirme:   ████████████████████ 100%
+Sonuç Paneli:          ████████████████████ 100%
+Header:                ░░░░░░░░░░░░░░░░░░░░   0%
+Footer:                ░░░░░░░░░░░░░░░░░░░░   0%
+Deney Paneli:          ░░░░░░░░░░░░░░░░░░░░   0%
+Tooltip'ler:           ░░░░░░░░░░░░░░░░░░░░   0%
+Legend:                ░░░░░░░░░░░░░░░░░░░░   0%
+Export:                ░░░░░░░░░░░░░░░░░░░░   0%
+
+GENEL UI:              ████████████░░░░░░░░  60%
+```
+
+---
+
+## 🔗 İlgili Dosyalar
+
+- `backend-todo.md` - Backend yapılacaklar
+- `project_status.md` - Genel proje durumu
+- `DEVELOPMENT_GUIDE.md` - Geliştirme kılavuzu
+
+---
+
+*Doküman Versiyonu: 2.0*
+*Son Güncelleme: 7 Aralık 2025*

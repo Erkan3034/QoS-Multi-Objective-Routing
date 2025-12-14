@@ -77,7 +77,10 @@ class GraphWidget(QWidget):
         self.timer = QTimer()
         self.timer.timeout.connect(self._update_animation)
         
-        self.timer.timeout.connect(self._update_animation)
+        # Edge hover
+        self.current_hovered_edge = None
+        self.edge_tooltip = None
+        self.edge_highlight_line = None
         
         self._setup_ui()
         self.clear() # Set initial state
@@ -114,6 +117,7 @@ class GraphWidget(QWidget):
         
         # Mouse interaction
         self.plot_widget.scene().sigMouseClicked.connect(self._on_mouse_clicked)
+        self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
         
         layout.addWidget(self.plot_widget)
         
@@ -514,6 +518,145 @@ class GraphWidget(QWidget):
         
         if min_dist < 0.01:
             self.node_clicked.emit(closest_node)
+    
+    def _on_mouse_moved(self, pos):
+        """Mouse hareket event'i - edge hover için."""
+        if self.graph is None:
+            return
+        
+        mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
+        self._check_edge_hover(mouse_point)
+    
+    def _check_edge_hover(self, mouse_point):
+        """Mouse pozisyonuna en yakın edge'i bul ve tooltip göster."""
+        if self.graph is None:
+            return
+        
+        min_dist = float('inf')
+        closest_edge = None
+        
+        # Check distance to all edges
+        for u, v in self.graph.edges():
+            x1, y1 = self.positions[u]
+            x2, y2 = self.positions[v]
+            
+            # Calculate distance from point to line segment
+            dist = self._point_to_line_distance(
+                mouse_point.x(), mouse_point.y(),
+                x1, y1, x2, y2
+            )
+            
+            if dist < min_dist:
+                min_dist = dist
+                closest_edge = (u, v)
+        
+        # Show tooltip if close enough (threshold in view coordinates)
+        hover_threshold = 0.02
+        if min_dist < hover_threshold and closest_edge:
+            if self.current_hovered_edge != closest_edge:
+                self.current_hovered_edge = closest_edge
+                self._show_edge_tooltip(closest_edge, mouse_point)
+        else:
+            if self.current_hovered_edge is not None:
+                self._hide_edge_tooltip()
+                self.current_hovered_edge = None
+    
+    def _point_to_line_distance(self, px, py, x1, y1, x2, y2):
+        """Bir noktanın bir doğru parçasına olan uzaklığını hesapla."""
+        # Vector from line start to end
+        dx = x2 - x1
+        dy = y2 - y1
+        
+        # If line is a point, return distance to that point
+        if dx == 0 and dy == 0:
+            return ((px - x1) ** 2 + (py - y1) ** 2) ** 0.5
+        
+        # Vector from line start to point
+        px_dx = px - x1
+        py_dy = py - y1
+        
+        # Project point onto line
+        t = max(0, min(1, (px_dx * dx + py_dy * dy) / (dx * dx + dy * dy)))
+        
+        # Closest point on line segment
+        closest_x = x1 + t * dx
+        closest_y = y1 + t * dy
+        
+        # Distance from point to closest point on line
+        return ((px - closest_x) ** 2 + (py - closest_y) ** 2) ** 0.5
+    
+    def _show_edge_tooltip(self, edge, mouse_point):
+        """Edge bilgilerini tooltip olarak göster."""
+        u, v = edge
+        edge_data = self.graph.edges[u, v]
+        
+        delay = edge_data.get('delay', 0.0)
+        reliability = edge_data.get('reliability', 1.0)
+        bandwidth = edge_data.get('bandwidth', 0.0)
+        
+        tooltip_text = (
+            f"Kenar: {u} → {v}\n"
+            f"Gecikme: {delay:.2f} ms\n"
+            f"Güvenilirlik: {reliability:.4f}\n"
+            f"Bant Genişliği: {bandwidth:.2f} Mbps"
+        )
+        
+        # Remove old tooltip if exists
+        if self.edge_tooltip is not None:
+            self.plot_widget.removeItem(self.edge_tooltip)
+        
+        # Create new tooltip
+        self.edge_tooltip = pg.TextItem(
+            tooltip_text,
+            anchor=(0, 1),
+            color='#f1f5f9',
+            border='#334155',
+            fill='#1e293b'
+        )
+        font = QFont()
+        font.setPointSize(9)
+        self.edge_tooltip.setFont(font)
+        # Position tooltip near mouse but offset slightly
+        self.edge_tooltip.setPos(mouse_point.x() + 0.05, mouse_point.y() - 0.05)
+        self.plot_widget.addItem(self.edge_tooltip)
+        
+        # Highlight the edge
+        self._highlight_edge(edge, True)
+    
+    def _hide_edge_tooltip(self):
+        """Edge tooltip'i gizle."""
+        if self.edge_tooltip is not None:
+            self.plot_widget.removeItem(self.edge_tooltip)
+            self.edge_tooltip = None
+        
+        # Remove edge highlight
+        self._highlight_edge(self.current_hovered_edge, False)
+    
+    def _highlight_edge(self, edge, highlight):
+        """Edge'i vurgula (hover durumunda)."""
+        if edge is None:
+            return
+        
+        u, v = edge
+        x1, y1 = self.positions[u]
+        x2, y2 = self.positions[v]
+        
+        if highlight:
+            # Remove old highlight if exists
+            if self.edge_highlight_line is not None:
+                self.plot_widget.removeItem(self.edge_highlight_line)
+            
+            # Create highlight line
+            self.edge_highlight_line = self.plot_widget.plot(
+                [x1, x2], [y1, y2],
+                pen=pg.mkPen(color=(59, 130, 246, 200), width=3),  # blue-500 with alpha
+                connect='finite'
+            )
+        else:
+            # Remove highlight
+            if self.edge_highlight_line is not None:
+                self.plot_widget.removeItem(self.edge_highlight_line)
+                self.edge_highlight_line = None
 
     def _zoom_in(self):
         self.plot_widget.plotItem.vb.scaleBy((0.7, 0.7))
@@ -563,6 +706,7 @@ class GraphWidget(QWidget):
         self.path = []
         self.source = None
         self.destination = None
+        self.current_hovered_edge = None
         self.plot_widget.clear()
         self.timer.stop()
         

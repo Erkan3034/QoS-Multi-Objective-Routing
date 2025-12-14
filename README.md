@@ -27,7 +27,7 @@ python main.py
 ## Proje Yapısı
 
 ```
-QoS-guncel/
+QoS-Multi-Objective-Routing/
 ├── app/                    # Ana uygulama
 │   ├── main.py            # Giriş noktası
 │   ├── src/

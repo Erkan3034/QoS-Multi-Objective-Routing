@@ -12,10 +12,12 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from typing import Dict, List, Optional
 
-# __file__ = QoS/app/src/ui/main_window.py
-# QoS-Multi-Objective-Routing/app ile aynı dizin
-
-PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
+# __file__ = app/src/ui/main_window.py
+# app klasörünü bul (3 seviye yukarı: ui -> src -> app)
+APP_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# app ile aynı dizindeki graph_data klasörünü bul
+PROJECT_ROOT = os.path.dirname(APP_DIR)
+GRAPH_DATA_DIR = os.path.join(PROJECT_ROOT, "graph_data")
 
 from src.ui.components.graph_widget import GraphWidget
 from src.ui.components.control_panel import ControlPanel
@@ -403,13 +405,11 @@ class MainWindow(QMainWindow):
     
     def _on_load_csv(self):
         """CSV dosyalarından graf yükle."""
-        # Önce varsayılan dizini dene (proje kökündeki graph_data)
-        default_data_dir = os.path.join(PROJECT_ROOT, "graph_data")
-        
-        if os.path.exists(default_data_dir):
-            data_dir = default_data_dir
+        # Önce app ile aynı dizindeki graph_data klasörünü otomatik bul
+        if os.path.exists(GRAPH_DATA_DIR) and os.path.isdir(GRAPH_DATA_DIR):
+            data_dir = GRAPH_DATA_DIR
         else:
-            # Kullanıcıdan klasör seçmesini iste
+            # Bulunamazsa kullanıcıdan manuel seçim iste
             data_dir = QFileDialog.getExistingDirectory(
                 self,
                 "graph_data Klasörünü Seçin",

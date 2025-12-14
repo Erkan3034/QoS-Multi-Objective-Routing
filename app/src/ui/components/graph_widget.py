@@ -12,7 +12,7 @@ import os
 
 class PathParticle:
     """Yol üzerinde hareket eden parçacık."""
-    def __init__(self, path_nodes: List[int], positions: Dict[int, tuple], speed=0.02, offset=0.0):
+    def __init__(self, path_nodes: List[int], positions: Dict[int, tuple], speed=0.01, offset=0.0):
         self.path_nodes = path_nodes
         self.positions = positions
         self.position = offset

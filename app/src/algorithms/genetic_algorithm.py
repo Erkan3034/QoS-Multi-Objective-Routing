@@ -16,8 +16,8 @@ import time
 import networkx as nx
 from typing import List, Dict, Any, Optional, Tuple
 from dataclasses import dataclass
-from src.services.metrics_service import MetricsService
-from src.core.config import settings
+from ..services.metrics_service import MetricsService
+from ..core.config import settings
 
 
 @dataclass
@@ -143,7 +143,7 @@ class GeneticAlgorithm:
                         weights['resource']
                     )
                     fitness_scores.append((individual, fitness))
-                except Exception:
+                except (ValueError, KeyError, IndexError):
                     fitness_scores.append((individual, float('inf')))
             
             # Fitness'a göre sırala
@@ -182,9 +182,9 @@ class GeneticAlgorithm:
         """
         population = []
         attempts_per_individual = 10
-        
+
         for _ in range(self.population_size):
-            for attempt in range(attempts_per_individual):
+            for _ in range(attempts_per_individual):
                 path = self._generate_random_path(source, destination)
                 if path and path not in population:
                     population.append(path)
@@ -252,15 +252,15 @@ class GeneticAlgorithm:
             
             # Çaprazlama
             if random.random() < self.crossover_rate:
-                child1, child2 = self._crossover(parent1, parent2, source, destination)
+                child1, child2 = self._crossover(parent1, parent2)
             else:
                 child1, child2 = parent1[:], parent2[:]
             
             # Mutasyon
             if random.random() < self.mutation_rate:
-                child1 = self._mutate(child1, source, destination)
+                child1 = self._mutate(child1)
             if random.random() < self.mutation_rate:
-                child2 = self._mutate(child2, source, destination)
+                child2 = self._mutate(child2)
             
             # Geçerli çocukları ekle
             for child in [child1, child2]:
@@ -282,9 +282,7 @@ class GeneticAlgorithm:
     def _crossover(
         self,
         parent1: List[int],
-        parent2: List[int],
-        source: int,
-        destination: int
+        parent2: List[int]
     ) -> Tuple[List[int], List[int]]:
         """
         Single-point crossover uygular.
@@ -318,9 +316,7 @@ class GeneticAlgorithm:
     
     def _mutate(
         self,
-        individual: List[int],
-        source: int,
-        destination: int
+        individual: List[int]
     ) -> List[int]:
         """
         Mutasyon uygular.

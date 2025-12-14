@@ -1,8 +1,8 @@
 """
 Graf Oluşturma ve Yönetim Servisi
 
-Bu modül Erdős–Rényi modeli kullanarak rastgele ağ topolojileri oluşturur
-ve CSV dosyalarından graf verisi yükler.
+Bu modülde Erdős–Rényi modeli kullanarak rastgele ağ topolojileri oluşturuyoruz
+ve CSV dosyalarından graf verisi yüklüyoruz.
 """
 import os
 import networkx as nx
@@ -22,7 +22,9 @@ class DemandPair:
 
 
 class GraphService:
-    """Graf oluşturma ve yönetim servisi."""
+    """Graf oluşturma ve yönetim servisi. 
+    Burada graf oluşturma, graf verisi yükleme, graf bağlantılılık kontrolü, 
+    graf düğümlerinin pozisyonlarını hesaplamak gibi işlemler yapılıyor."""
     
     def __init__(self, seed: Optional[int] = None):
         self.seed = seed if seed is not None else settings.RANDOM_SEED
@@ -240,4 +242,3 @@ class GraphService:
     def is_from_csv(self) -> bool:
         """Grafın CSV'den yüklenip yüklenmediğini döndürür."""
         return self._data_source == "csv"
-

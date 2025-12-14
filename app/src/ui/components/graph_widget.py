@@ -3,21 +3,49 @@ Graf Görselleştirme Widget - PyQtGraph ile yüksek performanslı render
 """
 import numpy as np
 import pyqtgraph as pg
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel
-from PyQt5.QtCore import pyqtSignal, Qt
-from PyQt5.QtGui import QColor
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QToolTip, QFrame
+from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QPoint, QSize
+from PyQt5.QtGui import QColor, QCursor, QFont, QIcon
 from typing import Dict, List, Optional, Set
 import networkx as nx
+import os
 
+class PathParticle:
+    """Yol üzerinde hareket eden parçacık."""
+    def __init__(self, path_nodes: List[int], positions: Dict[int, tuple], speed=0.02, offset=0.0):
+        self.path_nodes = path_nodes
+        self.positions = positions
+        self.position = offset
+        self.speed = speed
+    
+    def update(self):
+        self.position += self.speed
+        if self.position >= len(self.path_nodes) - 1:
+            self.position = 0.0
+        return self.get_coordinates()
+        
+    def get_coordinates(self):
+        idx = int(self.position)
+        next_idx = idx + 1
+        if next_idx >= len(self.path_nodes):
+            next_idx = 0 # Should not happen with reset logic but safety first
+            
+        u = self.path_nodes[idx]
+        v = self.path_nodes[next_idx]
+        
+        pos_u = np.array(self.positions[u])
+        pos_v = np.array(self.positions[v])
+        
+        t = self.position - idx
+        current_pos = pos_u + (pos_v - pos_u) * t
+        return current_pos[0], current_pos[1]
 
 class GraphWidget(QWidget):
     """
     Performanslı graf görselleştirme widget'ı.
-    
-    PyQtGraph kullanarak 250+ düğümlü grafları sorunsuz render eder.
     """
     
-    node_clicked = pyqtSignal(int)  # Düğüm tıklandığında sinyal
+    node_clicked = pyqtSignal(int)
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -27,248 +55,454 @@ class GraphWidget(QWidget):
         self.source: Optional[int] = None
         self.destination: Optional[int] = None
         
-        # Node scatter plots
+        # Visual items
         self.node_scatter = None
+        self.source_glow = None
+        self.dest_glow = None
+        self.intermediate_glow = None
         self.path_scatter = None
         self.source_scatter = None
         self.dest_scatter = None
-        
-        # Edge lines
-        self.edge_lines = None
+        self.intermediate_scatter = None
         self.path_lines = None
+        self.edge_lines = None
+        
+        # Labels
+        self.text_items = []
+        self.node_labels = []
+        self.labels_visible = False
+        
+        # Animation
+        self.particles: List[PathParticle] = []
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._update_animation)
+        
+        self.timer.timeout.connect(self._update_animation)
         
         self._setup_ui()
+        self.clear() # Set initial state
     
     def _setup_ui(self):
-        """UI kurulumu."""
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        self.setObjectName("GraphWidget")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("""
+            QWidget#GraphWidget {
+                background-color: #111827;
+                border: 1px solid #1f2937;
+                border-radius: 16px;
+            }
+        """)
         
-        # PyQtGraph plot widget
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(1, 1, 1, 1) # Small margin to show border/radius
+        # Note: If we want "padding" inside the card as per image, we can increase this
+        # But image shows graph taking mostly full space, maybe just rounded headers? 
+        # Actually image shows the nodes floating on the dark background. 
+        # A small margin ensures the plot content (which is rect) doesn't clip the rounded corners ugly.
+        layout.setContentsMargins(6, 6, 6, 6)
+        
+        # Plot Widget
         self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#0f172a')  # slate-900
+        self.plot_widget.setBackground('#111827') # Match parent bg
+        self.plot_widget.setFrameShape(QFrame.NoFrame) # Remove internal border
+        
         self.plot_widget.setAspectLocked(True)
         self.plot_widget.showGrid(x=False, y=False)
         self.plot_widget.hideAxis('left')
         self.plot_widget.hideAxis('bottom')
+        self.plot_widget.disableAutoRange()
         
         # Mouse interaction
         self.plot_widget.scene().sigMouseClicked.connect(self._on_mouse_clicked)
         
         layout.addWidget(self.plot_widget)
         
-        # Control buttons
-        btn_layout = QHBoxLayout()
+        # Controls Container (Floating) - Top Right Vertical
+        self.controls_container = QWidget(self)
+        self.controls_container.setStyleSheet("background: transparent;")
+        controls_layout = QVBoxLayout(self.controls_container) # Changed to Vertical
+        controls_layout.setSpacing(8)
+        controls_layout.setContentsMargins(0, 0, 0, 0)
         
-        self.btn_zoom_in = QPushButton("➕")
-        self.btn_zoom_in.setFixedSize(32, 32)
-        self.btn_zoom_in.clicked.connect(self._zoom_in)
+        # Buttons
+        # Buttons
+        self.btn_plus = self._create_btn("icon_plus.svg", self._zoom_in, "Yakınlaştır")
+        self.btn_minus = self._create_btn("icon_minus.svg", self._zoom_out, "Uzaklaştır")
+        self.btn_expand = self._create_btn("icon_expand.svg", self._fit_view, "Sığdır")
+        self.btn_contract = self._create_btn("icon_contract.svg", self._reset_view, "Merkeze Odakla")
+        self.btn_tag = self._create_btn("icon_tag.svg", self.toggle_labels, "Etiketleri Göster/Gizle") # Tag
         
-        self.btn_zoom_out = QPushButton("➖")
-        self.btn_zoom_out.setFixedSize(32, 32)
-        self.btn_zoom_out.clicked.connect(self._zoom_out)
+        controls_layout.addWidget(self.btn_plus)
+        controls_layout.addWidget(self.btn_minus)
+        controls_layout.addWidget(self.btn_expand)
+        controls_layout.addWidget(self.btn_contract)
+        controls_layout.addWidget(self.btn_tag)
+        controls_layout.addStretch()
         
-        self.btn_fit = QPushButton("⬜")
-        self.btn_fit.setFixedSize(32, 32)
-        self.btn_fit.clicked.connect(self._fit_view)
-        self.btn_fit.setToolTip("Sığdır")
+        self.controls_container.adjustSize()
         
-        self.info_label = QLabel("Graf yüklenmedi")
-        self.info_label.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        self._setup_placeholder()
+
+    def _setup_placeholder(self):
+        """Grafik boşken gösterilecek placeholder."""
+        self.placeholder = QWidget(self)
+        self.placeholder.setStyleSheet("background-color: transparent;")
         
-        btn_layout.addWidget(self.btn_zoom_in)
-        btn_layout.addWidget(self.btn_zoom_out)
-        btn_layout.addWidget(self.btn_fit)
-        btn_layout.addStretch()
-        btn_layout.addWidget(self.info_label)
+        layout = QVBoxLayout(self.placeholder)
+        layout.setAlignment(Qt.AlignCenter)
+        layout.setSpacing(20)
         
-        layout.addLayout(btn_layout)
+        # Icon
+        icon_label = QLabel("⚡")
+        icon_label.setAlignment(Qt.AlignCenter)
+        icon_label.setStyleSheet("""
+            font-size: 64px;
+            color: #475569; /* slate-600 */
+            background-color: transparent;
+            padding: 0px;
+        """)
+        layout.addWidget(icon_label, 0, Qt.AlignCenter)
         
-        # Style buttons
-        btn_style = """
+        # Text
+        text_label = QLabel("Graf oluşturmak için \"Graf Oluştur\" butonuna tıklayın")
+        text_label.setAlignment(Qt.AlignCenter)
+        text_label.setStyleSheet("color: #64748b; font-size: 16px; font-weight: 500;")
+        layout.addWidget(text_label)
+        
+        self.placeholder.hide()
+
+    def _reset_view(self):
+        """Reset zoom to default 1:1 scale (roughly) or center."""
+        # Just fit view for now, or could set specific range
+        self._fit_view()
+
+    def _create_btn(self, icon_name, callback, tooltip):
+        btn = QPushButton()
+        btn.setFixedSize(32, 32)
+        btn.clicked.connect(callback)
+        btn.setToolTip(tooltip)
+        btn.setCursor(Qt.PointingHandCursor)
+        
+        # Load Icon
+        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icons", icon_name)
+        if os.path.exists(icon_path):
+            btn.setIcon(QIcon(icon_path))
+            btn.setIconSize(QSize(18, 18))
+        else:
+            btn.setText("?")
+            
+        btn.setStyleSheet("""
             QPushButton {
-                background-color: #334155;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
+                background-color: #1e293b; /* slate-800 */
+                border: 1px solid #334155;
+                border-radius: 8px;
             }
             QPushButton:hover {
-                background-color: #475569;
+                background-color: #334155;
+                border-color: #475569;
             }
-        """
-        self.btn_zoom_in.setStyleSheet(btn_style)
-        self.btn_zoom_out.setStyleSheet(btn_style)
-        self.btn_fit.setStyleSheet(btn_style)
-    
+            QPushButton:pressed {
+                background-color: #0f172a;
+            }
+        """)
+        return btn
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Position controls on the top right side
+        if hasattr(self, 'controls_container'):
+            self.controls_container.move(
+                self.width() - self.controls_container.width() - 20,
+                20
+            )
+        
+        if hasattr(self, 'placeholder'):
+            self.placeholder.resize(self.size())
+
     def set_graph(self, graph: nx.Graph, positions: Dict[int, tuple] = None):
-        """Graf verisi ayarla ve çiz."""
+        if hasattr(self, 'placeholder'):
+            self.placeholder.hide()
+            self.plot_widget.show()
+            self.controls_container.show()
+            
         self.graph = graph
         
         if positions:
             self.positions = positions
         else:
-            # Spring layout hesapla
             self.positions = nx.spring_layout(
                 graph, seed=42, k=2/np.sqrt(graph.number_of_nodes())
             )
         
         self._draw_graph()
         self._fit_view()
-        
-        self.info_label.setText(
-            f"Düğüm: {graph.number_of_nodes()} | Kenar: {graph.number_of_edges()}"
-        )
-    
+
     def set_path(self, path: List[int]):
-        """Bulunan yolu işaretle."""
         self.path = path
         self._update_path_display()
-    
+        self._init_particles()
+
     def set_source_destination(self, source: Optional[int], destination: Optional[int]):
-        """Kaynak ve hedef düğümleri ayarla."""
         self.source = source
         self.destination = destination
         self._update_special_nodes()
-    
+
     def _draw_graph(self):
-        """Grafı çiz."""
         if self.graph is None:
             return
         
         self.plot_widget.clear()
+        self.text_items = []
         
-        # Pozisyonları numpy array'e çevir
+        # Prepare data
         n_nodes = self.graph.number_of_nodes()
-        pos_array = np.zeros((n_nodes, 2), dtype=np.float64)
+        pos_array = np.zeros((n_nodes, 2))
+        node_data = []
         for node, (x, y) in self.positions.items():
-            pos_array[node] = [float(x), float(y)]
+            pos_array[node] = [x, y]
+            node_data.append({'id': node})
         
-        # Kenarları çiz - np.nan kullanarak ayrı segmentler oluştur
-        n_edges = self.graph.number_of_edges()
-        if n_edges > 0:
-            # Her kenar için 3 nokta: başlangıç, bitiş, nan (ayırıcı)
-            edge_x = np.zeros(n_edges * 3, dtype=np.float64)
-            edge_y = np.zeros(n_edges * 3, dtype=np.float64)
-            
-            for i, (u, v) in enumerate(self.graph.edges()):
-                x1, y1 = self.positions[u]
-                x2, y2 = self.positions[v]
-                idx = i * 3
-                edge_x[idx] = float(x1)
-                edge_x[idx + 1] = float(x2)
-                edge_x[idx + 2] = np.nan  # Segment ayırıcı
-                edge_y[idx] = float(y1)
-                edge_y[idx + 1] = float(y2)
-                edge_y[idx + 2] = np.nan
-            
-            self.edge_lines = self.plot_widget.plot(
-                edge_x, edge_y,
-                pen=pg.mkPen(color=(71, 85, 105, 40), width=0.5),
-                connect='finite'
-            )
+        # Edges (Background)
+        edge_x = []
+        edge_y = []
+        for u, v in self.graph.edges():
+            x1, y1 = self.positions[u]
+            x2, y2 = self.positions[v]
+            edge_x.extend([x1, x2, np.nan])
+            edge_y.extend([y1, y2, np.nan])
         
-        # Düğümleri çiz
+        # Convert to numpy arrays to ensure float dtype
+        edge_x = np.array(edge_x, dtype=float)
+        edge_y = np.array(edge_y, dtype=float)
+        
+        self.edge_lines = self.plot_widget.plot(
+            edge_x, edge_y,
+            pen=pg.mkPen(color=(71, 85, 105, 50), width=0.8), # slate-600 low alpha
+            connect='finite'
+        )
+        
+        # Glow Items (Behind everything else)
+        # Source Glow
+        self.source_glow = pg.ScatterPlotItem(
+            size=50,
+            brush=pg.mkBrush(34, 197, 94, 80), # green-500 low alpha
+            pen=pg.mkPen(None),
+            pxMode=True
+        )
+        self.plot_widget.addItem(self.source_glow)
+        
+        # Dest Glow
+        self.dest_glow = pg.ScatterPlotItem(
+            size=50,
+            brush=pg.mkBrush(239, 68, 68, 80), # red-500 low alpha
+            pen=pg.mkPen(None),
+            pxMode=True
+        )
+        self.plot_widget.addItem(self.dest_glow)
+        
+        # Intermediate Glow
+        self.intermediate_glow = pg.ScatterPlotItem(
+            size=50, 
+            brush=pg.mkBrush(245, 158, 11, 80), # amber-500 low alpha
+            pen=pg.mkPen(None),
+            pxMode=True
+        )
+        self.plot_widget.addItem(self.intermediate_glow)
+
+        # Nodes
         self.node_scatter = pg.ScatterPlotItem(
             pos=pos_array,
-            size=8,
-            brush=pg.mkBrush(100, 116, 139, 200),
+            size=10,
+            brush=pg.mkBrush(100, 116, 139, 200), # slate-500
             pen=pg.mkPen(None),
-            hoverable=True
+            hoverable=True,
+            data=node_data
         )
+        self.node_scatter.sigHovered.connect(self._on_node_hover)
         self.plot_widget.addItem(self.node_scatter)
         
-        # Path için boş scatter (sonra doldurulacak)
-        self.path_scatter = pg.ScatterPlotItem(size=14, brush=pg.mkBrush(245, 158, 11, 255))
-        self.plot_widget.addItem(self.path_scatter)
+        # Path Lines (Orange Glow)
+        self.path_lines = self.plot_widget.plot(
+            [], [],
+            pen=pg.mkPen(color=(245, 158, 11, 255), width=4), # amber-500
+            connect='finite'
+        )
+        # Path Glow Effect (Simulated by wider transparent line)
+        self.path_glow = self.plot_widget.plot(
+            [], [],
+            pen=pg.mkPen(color=(245, 158, 11, 100), width=8), 
+            connect='finite'
+        )
         
-        # Source scatter
-        self.source_scatter = pg.ScatterPlotItem(size=20, brush=pg.mkBrush(34, 197, 94, 255))
+        # Intermediate Nodes Scatter (Yellow)
+        self.intermediate_scatter = pg.ScatterPlotItem(
+            size=36, # Same as Source/Dest
+            brush=pg.mkBrush(245, 158, 11, 255), # amber-500
+            pen=pg.mkPen('w', width=2), # Match border width of S/D (2)
+            pxMode=True
+        )
+        self.plot_widget.addItem(self.intermediate_scatter)
+        
+        # Source & Dest Scatters (Large)
+        self.source_scatter = pg.ScatterPlotItem(
+            size=36,
+            brush=pg.mkBrush(34, 197, 94, 255), # green-500
+            pen=pg.mkPen('w', width=2),
+            pxMode=True
+        )
         self.plot_widget.addItem(self.source_scatter)
         
-        # Destination scatter
-        self.dest_scatter = pg.ScatterPlotItem(size=20, brush=pg.mkBrush(239, 68, 68, 255))
+        self.dest_scatter = pg.ScatterPlotItem(
+            size=36, 
+            brush=pg.mkBrush(239, 68, 68, 255), # red-500
+            pen=pg.mkPen('w', width=2),
+            pxMode=True
+        )
         self.plot_widget.addItem(self.dest_scatter)
         
-        # Path lines - başlangıçta çizme, sadece placeholder oluştur
-        self.path_lines = None
-    
-    def _update_path_display(self):
-        """Yol görselleştirmesini güncelle."""
-        # Önceki path lines'ı kaldır
-        if self.path_lines is not None:
-            self.plot_widget.removeItem(self.path_lines)
-            self.path_lines = None
+        # Particles
+        self.particle_scatter = pg.ScatterPlotItem(
+            size=8,
+            brush=pg.mkBrush(255, 255, 255, 255),
+            pen=pg.mkPen(None),
+            pxMode=True
+        )
+        self.plot_widget.addItem(self.particle_scatter)
         
+        # Restore labels if they were visible
+        if self.labels_visible:
+            self._update_node_labels()
+
+    def _update_path_display(self):
         if not self.path or len(self.path) < 2:
-            # Boş durumda scatter'ı temizle
-            if self.path_scatter is not None:
-                self.path_scatter.setData(pos=np.zeros((0, 2), dtype=np.float64))
+            self.path_lines.setData([], [])
+            self.path_glow.setData([], [])
+            self.particle_scatter.setData(pos=[])
+            self.timer.stop()
             return
         
-        # Path düğümlerini işaretle (source/dest hariç)
-        path_nodes = self.path[1:-1]
-        if len(path_nodes) > 0 and self.path_scatter is not None:
-            path_pos = np.array([[float(self.positions[n][0]), float(self.positions[n][1])] 
-                                  for n in path_nodes], dtype=np.float64)
-            self.path_scatter.setData(pos=path_pos)
-        elif self.path_scatter is not None:
-            self.path_scatter.setData(pos=np.zeros((0, 2), dtype=np.float64))
+        # Path edges
+        edge_x = []
+        edge_y = []
+        for i in range(len(self.path) - 1):
+            x1, y1 = self.positions[self.path[i]]
+            x2, y2 = self.positions[self.path[i + 1]]
+            edge_x.extend([x1, x2, np.nan])
+            edge_y.extend([y1, y2, np.nan])
         
-        # Path kenarlarını çiz
-        n_path_edges = len(self.path) - 1
-        if n_path_edges > 0:
-            edge_x = np.zeros(n_path_edges * 3, dtype=np.float64)
-            edge_y = np.zeros(n_path_edges * 3, dtype=np.float64)
+        # Convert to numpy arrays
+        edge_x = np.array(edge_x, dtype=float)
+        edge_y = np.array(edge_y, dtype=float)
+        
+        self.path_lines.setData(edge_x, edge_y)
+        self.path_lines.setData(edge_x, edge_y)
+        self.path_glow.setData(edge_x, edge_y)
+
+        # Update Intermediate Nodes
+        int_pos = []
+        if len(self.path) > 2:
+            # Intermediate nodes are between first and last
+            intermediate_nodes = self.path[1:-1]
+            for node in intermediate_nodes:
+                 if node in self.positions:
+                     int_pos.append(list(self.positions[node]))
+        
+        if int_pos:
+            self.intermediate_scatter.setData(pos=np.array(int_pos))
+            self.intermediate_glow.setData(pos=np.array(int_pos))
+        else:
+            self.intermediate_scatter.setData(pos=[])
+            self.intermediate_glow.setData(pos=[])
+        
+    def _init_particles(self):
+        self.particles = []
+        if not self.path:
+            return
             
-            for i in range(n_path_edges):
-                x1, y1 = self.positions[self.path[i]]
-                x2, y2 = self.positions[self.path[i + 1]]
-                idx = i * 3
-                edge_x[idx] = float(x1)
-                edge_x[idx + 1] = float(x2)
-                edge_x[idx + 2] = np.nan
-                edge_y[idx] = float(y1)
-                edge_y[idx + 1] = float(y2)
-                edge_y[idx + 2] = np.nan
+        # Create particles
+        for i in range(3):
+            offset = i * (len(self.path) / 3)
+            self.particles.append(PathParticle(self.path, self.positions, offset=offset))
             
-            self.path_lines = self.plot_widget.plot(
-                edge_x, edge_y,
-                pen=pg.mkPen(color=(245, 158, 11, 255), width=4),
-                connect='finite'
-            )
-    
+        self.timer.start(30)
+
+    def _update_animation(self):
+        if not self.particles:
+            return
+        positions = []
+        for p in self.particles:
+            x, y = p.update()
+            positions.append([x, y])
+        self.particle_scatter.setData(pos=np.array(positions))
+
     def _update_special_nodes(self):
-        """Kaynak ve hedef düğümlerini güncelle."""
-        empty_pos = np.zeros((0, 2), dtype=np.float64)
+        # Clear previous text items
+        for item in self.text_items:
+            self.plot_widget.removeItem(item)
+        self.text_items = []
         
+        # Update Source
         if self.source is not None and self.source in self.positions:
-            x, y = self.positions[self.source]
-            pos = np.array([[float(x), float(y)]], dtype=np.float64)
-            if self.source_scatter is not None:
-                self.source_scatter.setData(pos=pos)
+            pos = self.positions[self.source]
+            self.source_scatter.setData(pos=[pos])
+            self.source_glow.setData(pos=[pos])
+            
+            # Text 'S'
+            text_s = pg.TextItem("S", anchor=(0.5, 0.5), color='white')
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(12)
+            text_s.setFont(font)
+            text_s.setPos(pos[0], pos[1])
+            self.plot_widget.addItem(text_s)
+            self.text_items.append(text_s)
+            
+            # Label ID above
+            text_id = pg.TextItem(str(self.source), anchor=(0.5, 1.5), color='#f1f5f9')
+            text_id.setPos(pos[0], pos[1])
+            self.plot_widget.addItem(text_id)
+            self.text_items.append(text_id)
         else:
-            if self.source_scatter is not None:
-                self.source_scatter.setData(pos=empty_pos)
+            self.source_scatter.setData(pos=[])
+            self.source_glow.setData(pos=[])
         
+        # Update Dest
         if self.destination is not None and self.destination in self.positions:
-            x, y = self.positions[self.destination]
-            pos = np.array([[float(x), float(y)]], dtype=np.float64)
-            if self.dest_scatter is not None:
-                self.dest_scatter.setData(pos=pos)
+            pos = self.positions[self.destination]
+            self.dest_scatter.setData(pos=[pos])
+            self.dest_glow.setData(pos=[pos])
+            
+            # Text 'D'
+            text_d = pg.TextItem("D", anchor=(0.5, 0.5), color='white')
+            font = QFont()
+            font.setBold(True)
+            font.setPointSize(12)
+            text_d.setFont(font)
+            text_d.setPos(pos[0], pos[1])
+            self.plot_widget.addItem(text_d)
+            self.text_items.append(text_d)
+            
+            # Label ID above
+            text_id = pg.TextItem(str(self.destination), anchor=(0.5, 1.5), color='#f1f5f9')
+            text_id.setPos(pos[0], pos[1])
+            self.plot_widget.addItem(text_id)
+            self.text_items.append(text_id)
         else:
-            if self.dest_scatter is not None:
-                self.dest_scatter.setData(pos=empty_pos)
-    
+            self.dest_scatter.setData(pos=[])
+            self.dest_glow.setData(pos=[])
+
+    def _on_node_hover(self, item, points, ev):
+        if len(points) > 0:
+            pt = points[0]
+            node_id = pt.data()['id']
+            # Simple interaction, can be expanded
+            
     def _on_mouse_clicked(self, event):
-        """Mouse tıklama olayı."""
         if self.graph is None:
             return
-        
         pos = event.scenePos()
         mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
         
-        # En yakın düğümü bul
         min_dist = float('inf')
         closest_node = None
         
@@ -278,35 +512,61 @@ class GraphWidget(QWidget):
                 min_dist = dist
                 closest_node = node
         
-        # Eşik mesafe kontrolü
-        if min_dist < 0.01:  # Tıklama mesafesi eşiği
+        if min_dist < 0.01:
             self.node_clicked.emit(closest_node)
-    
+
     def _zoom_in(self):
-        """Yakınlaştır."""
         self.plot_widget.plotItem.vb.scaleBy((0.7, 0.7))
     
     def _zoom_out(self):
-        """Uzaklaştır."""
         self.plot_widget.plotItem.vb.scaleBy((1.3, 1.3))
     
     def _fit_view(self):
-        """Tümünü göster."""
-        if self.graph is not None and self.graph.number_of_nodes() > 0:
+        if self.graph is None or self.graph.number_of_nodes() == 0:
+            return
+        try:
             self.plot_widget.plotItem.vb.autoRange()
-    
+        except Exception:
+            pass
+        
+    def toggle_labels(self):
+        self.labels_visible = not self.labels_visible
+        self._update_node_labels()
+        
+    def _update_node_labels(self):
+        # Clear existing labels
+        for item in self.node_labels:
+            self.plot_widget.removeItem(item)
+        self.node_labels = []
+        
+        if not self.labels_visible or self.graph is None:
+            return
+            
+        for node, (x, y) in self.positions.items():
+            # Skip if source or dest (they have their own labels)
+            if node == self.source or node == self.destination:
+                continue
+                
+            text = pg.TextItem(
+                str(node), 
+                anchor=(0.5, 0.5),
+                color='#e2e8f0' # slate-200
+            )
+            # Center it on the node
+            text.setPos(x, y)
+            self.plot_widget.addItem(text)
+            self.node_labels.append(text)
+            
     def clear(self):
-        """Grafı temizle."""
         self.graph = None
         self.positions = {}
         self.path = []
         self.source = None
         self.destination = None
         self.plot_widget.clear()
-        self.node_scatter = None
-        self.path_scatter = None
-        self.source_scatter = None
-        self.dest_scatter = None
-        self.edge_lines = None
-        self.path_lines = None
-        self.info_label.setText("Graf yüklenmedi")
+        self.timer.stop()
+        
+        if hasattr(self, 'placeholder'):
+            self.placeholder.show()
+            self.plot_widget.hide()
+            self.controls_container.hide()

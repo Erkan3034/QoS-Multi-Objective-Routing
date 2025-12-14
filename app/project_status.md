@@ -1,6 +1,6 @@
 # 📊 Proje Durum Raporu
 
->  QoS Multi-Objective Routing Project
+> BSM307/317 QoS Multi-Objective Routing Project
 > Son Güncelleme: 2025-12-07
 
 ---

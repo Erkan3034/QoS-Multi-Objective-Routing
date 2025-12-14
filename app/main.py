@@ -15,7 +15,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont, QPalette, QColor
+from PyQt5.QtGui import QColor, QFont, QPalette
 
 from src.ui.main_window import MainWindow
 
@@ -60,8 +60,11 @@ def main():
     setup_dark_palette(app)
     
     # Ana pencere
+    print("Creating MainWindow...")
     window = MainWindow()
+    print("Showing MainWindow...")
     window.show()
+    print("Entering event loop...")
     
     sys.exit(app.exec_())
 

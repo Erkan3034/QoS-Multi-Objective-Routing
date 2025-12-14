@@ -19,4 +19,3 @@ __all__ = [
     "GeneticAlgorithm", "AntColonyOptimization", "ParticleSwarmOptimization",
     "SimulatedAnnealing", "QLearning", "SARSA", "ALGORITHMS"
 ]
-

@@ -1,24 +1,3 @@
-# AŞAMA 2: Core 
-src/core/
-
-# AŞAMA 3: Algoritmalar tamamlandığında   
-src/algorithms/aco.py
-#src/algorithms/genetic_algorithm.py
-src/algorithms/pso.py
-src/algorithms/q_learning.py
-src/algorithms/sarsa.py
-src/algorithms/simulated_annealing.py
-
-# AŞAMA 4: Experiments tamamlandığında
-src/experiments/
-
-# AŞAMA 5: MetricsService tamamlandığında
-src/services/metrics_service.py
-
-# AŞAMA 6: UI tamamlandığında
-src/ui/components/
-src/ui/main_window.py
-
 # ==============================================
 # Python Standart
 # ==============================================

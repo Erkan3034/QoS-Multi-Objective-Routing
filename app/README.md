@@ -1,143 +1,82 @@
 # 🖥️ QoS Multi-Objective Routing - Desktop Application
 
-> **PyQt5 tabanlı yüksek performanslı masaüstü uygulaması**
-
-Bu uygulama, web versiyonunun PyQt5 ile yeniden yazılmış halidir.
-250+ düğümlü grafları kasma olmadan görselleştirir.
-
----
+PyQt5 tabanlı masaüstü uygulaması. 250+ düğümlü grafları optimize eder ve görselleştirir.
 
 ## 🚀 Kurulum
 
-### 1. Virtual Environment Oluştur
-
-```powershell
-cd pyqt5-desktop
+```bash
+# Virtual environment oluştur
 python -m venv venv
 
-# Windows PowerShell
+# Aktif et (Windows)
 .\venv\Scripts\Activate.ps1
 
-# Windows CMD
-.\venv\Scripts\activate.bat
-
-# Linux/Mac
-source venv/bin/activate
-```
-
-### 2. Bağımlılıkları Yükle
-
-```powershell
+# Bağımlılıkları yükle
 pip install -r requirements.txt
-```
 
-### 3. Uygulamayı Çalıştır
-
-```powershell
+# Çalıştır
 python main.py
 ```
 
----
-
 ## 🎮 Kullanım
 
-### Graf Oluşturma
-1. Sol panelden düğüm sayısını (n) ayarlayın (varsayılan: 250)
-2. Bağlantı olasılığını (p) ayarlayın (varsayılan: 0.4)
-3. **"Graf Oluştur"** butonuna tıklayın
-
-### Kaynak/Hedef Seçimi
-- **Sol tıklama**: Kaynak düğümü seç
-- **Shift + Sol tıklama**: Hedef düğümü seç
-- Veya panelden manuel olarak girin
+### Graf Yükleme
+- **CSV'den Yükle**: "Proje Verisini Yükle (CSV)" butonuna tıklayın (graph_data klasöründen otomatik yükler)
+- **Rastgele Oluştur**: Düğüm sayısı ve bağlantı olasılığını ayarlayıp "Graf Oluştur" butonuna tıklayın
 
 ### Optimizasyon
-1. Kaynak ve hedef düğümleri seçin
+1. Kaynak ve hedef düğümleri seçin (graf üzerinde tıklayarak veya panelden)
 2. QoS ağırlıklarını ayarlayın (Gecikme, Güvenilirlik, Kaynak)
 3. Algoritma seçin
-4. **"Optimize Et"** veya **"Tümünü Karşılaştır"** butonuna tıklayın
+4. "Optimize Et" veya "Tüm Algoritmaları Karşılaştır" butonuna tıklayın
 
----
+### Talep Çiftleri
+CSV yüklendiğinde, talep çiftleri otomatik olarak ComboBox'ta görünür. Seçtiğinizde kaynak/hedef otomatik ayarlanır.
 
 ## 📊 Algoritmalar
 
-| Algoritma | Tür | Açıklama |
-|-----------|-----|----------|
-| Genetic Algorithm | Meta-Sezgisel | Evrimsel optimizasyon |
-| Ant Colony (ACO) | Meta-Sezgisel | Feromon tabanlı |
-| Particle Swarm (PSO) | Meta-Sezgisel | Sürü zekası |
-| Simulated Annealing | Meta-Sezgisel | Sıcaklık bazlı |
-| Q-Learning | RL | Off-policy öğrenme |
-| SARSA | RL | On-policy öğrenme |
-
----
-
-## ⌨️ Klavye Kısayolları
-
-| Kısayol | İşlev |
-|---------|-------|
-| Tıklama | Kaynak seç |
-| Shift+Tıklama | Hedef seç |
-| Mouse tekerleği | Yakınlaştır/Uzaklaştır |
-| Sürükle | Pan (kaydır) |
-
----
+| Algoritma | Tür |
+|-----------|-----|
+| Genetic Algorithm | Meta-Sezgisel |
+| Ant Colony (ACO) | Meta-Sezgisel |
+| Particle Swarm (PSO) | Meta-Sezgisel |
+| Simulated Annealing | Meta-Sezgisel |
+| Q-Learning | Reinforcement Learning |
+| SARSA | Reinforcement Learning |
 
 ## 🏗️ Proje Yapısı
 
 ```
-pyqt5-desktop/
+app/
 ├── main.py                 # Ana giriş noktası
-├── requirements.txt        # Python bağımlılıkları
-├── README.md              # Bu dosya
+├── requirements.txt        # Bağımlılıklar
 └── src/
     ├── core/
-    │   └── config.py      # Konfigürasyon
+    │   └── config.py      # Konfigürasyon (pydantic-settings)
     ├── services/
-    │   ├── graph_service.py    # Graf oluşturma
+    │   ├── graph_service.py    # Graf oluşturma ve CSV yükleme
     │   └── metrics_service.py  # Metrik hesaplama
-    ├── algorithms/
-    │   ├── genetic_algorithm.py
-    │   ├── aco.py
-    │   ├── pso.py
-    │   ├── simulated_annealing.py
-    │   ├── q_learning.py
-    │   └── sarsa.py
+    ├── algorithms/         # 6 optimizasyon algoritması
+    ├── experiments/        # Deney framework'ü
     └── ui/
-        ├── main_window.py     # Ana pencere
-        └── components/
-            ├── graph_widget.py    # Graf görselleştirme
-            ├── control_panel.py   # Kontrol paneli
-            └── results_panel.py   # Sonuç paneli
+        ├── main_window.py
+        └── components/     # UI bileşenleri
 ```
-
----
 
 ## 🔧 Sorun Giderme
 
-### PyQt5 yüklenmiyor
-```powershell
+**PyQt5 yüklenmiyor:**
+```bash
 pip install --upgrade pip
 pip install PyQt5 PyQt5-Qt5 PyQt5-sip
 ```
 
-### pyqtgraph hatası
-```powershell
-pip install pyqtgraph numpy
-```
-
-### Graf çok yavaş render ediliyor
-- Düğüm sayısını 200'ün altında tutun
-- Veya `graph_widget.py` içinde `size` parametrelerini küçültün
-
----
+**CSV dosyaları bulunamıyor:**
+- `graph_data` klasörünün proje kökünde (QoS-guncel ile aynı dizinde) olduğundan emin olun
+- Veya manuel olarak klasör seçin
 
 ## 📝 Notlar
 
-- Bu uygulama web versiyonundan bağımsızdır
-- Graf görselleştirme için PyQtGraph kullanılır (web'deki react-force-graph yerine)
-
----
-
-*Created by [developer](https://github.com/Erkan3034)*
-
+- Graf görselleştirme için PyQtGraph kullanılır
+- CSV dosyaları Türkçe format (virgül) destekler
+- Tüm algoritma parametreleri `src/core/config.py` dosyasından ayarlanabilir

@@ -13,6 +13,7 @@
 4. [Dosya Sıralaması](#-dosya-sıralaması)
 5. [Test Prosedürleri](#-test-prosedürleri)
 6. [Kod Standartları](#-kod-standartları)
+7. [Yeni Özellik ekleme](#-özellik-ekleme).
 
 ---
 
@@ -619,6 +620,56 @@ python -m pytest tests/
 | **Frontend** | UI geliştirme | `ui/` tüm dosyalar |
 
 ---
+# Özellik Ekleme
+
+1. Projeyi Bilgisayarınıza İndirin
+Öncelikle projenin bir kopyasını yerel makinenize çekin:
+
+
+`git clone https://github.com/Erkan303
+/QoS-Multi-Objective-Routing.git
+cd proje-adin
+`
+2. Bağımlılıkları Yükleyin
+Projenin çalışması için gerekli kütüphaneleri yükleyin: (Örnek Python için verilmiştir, projenize göre değiştirebilirsiniz)
+
+
+`pip install -r requirements.txt
+`
+🛠 Katkıda Bulunma Adımları
+Projeye yeni bir özellik eklemek veya bir hatayı düzeltmek için şu adımları takip edin:
+
+1. Yeni Bir Dal (Branch) Oluşturun
+Ana dalda (main veya master) doğrudan değişiklik yapmamaya özen gösterin. Yapacağınız işi tanımlayan yeni bir dal açın:
+
+
+
+`git checkout -b ozellik-adi
+`
+Örnek: git checkout -b login-ekrani-duzeltme
+
+2. Değişikliklerinizi Yapın ve Kaydedin
+Kodunuzu yazdıktan sonra değişiklikleri paketleyin ve bir mesajla kaydedin:
+
+`
+git add .
+git commit -m "Açıklayıcı bir commit mesajı: Giriş ekranı tasarımı yenilendi"
+`
+3. Değişiklikleri Uzak Sunucuya Gönderin
+Yerelinizdeki bu dalı GitHub'a (veya ilgili platforma) gönderin:
+
+`
+git push origin ozellik-adi
+`
+4. Pull Request (PR) Oluşturun
+GitHub üzerinde projenin sayfasına gidin. Üst kısımda beliren "Compare & pull request" butonuna tıklayarak değişikliklerinizin ana projeye dahil edilmesi için talep oluşturun.
+
+⚠️ Dikkat Edilmesi Gerekenler
+Güncel Kalın: Çalışmaya başlamadan önce her zaman ana dalın güncel olduğundan emin olun (git pull origin main).
+
+Mesaj Kalitesi: Commit mesajlarınızın kısa ama açıklayıcı olmasına dikkat edin.
+
+Kod Standartları: Mevcut kod yazım stiline (indentation, isimlendirme vb.) sadık kalın.
 
 *Doküman Versiyonu: 1.0*  
 *Son Güncelleme: 3 Aralık 2025*

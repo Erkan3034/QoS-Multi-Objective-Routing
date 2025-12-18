@@ -6,7 +6,7 @@ import pyqtgraph as pg
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QToolTip, QFrame
 from PyQt5.QtCore import pyqtSignal, Qt, QTimer, QPoint, QSize
 from PyQt5.QtGui import QColor, QCursor, QFont, QIcon
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 import networkx as nx
 import os
 
@@ -46,6 +46,15 @@ class GraphWidget(QWidget):
     """
     
     node_clicked = pyqtSignal(int)
+    # ========================================================================
+    # [CHAOS MONKEY FEATURE] Interactive Link Break
+    # ========================================================================
+    # Bu signal, kullanıcı bir edge'e sağ tıkladığında ve edge kırıldığında
+    # emit edilir. MainWindow bu signal'i dinleyerek otomatik olarak
+    # yeniden yönlendirme (re-optimization) tetikler.
+    # Parametreler: (u, v) - kırılan edge'in node ID'leri
+    # ========================================================================
+    edge_broken = pyqtSignal(int, int)  # u, v - broken edge
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -81,6 +90,21 @@ class GraphWidget(QWidget):
         self.current_hovered_edge = None
         self.edge_tooltip = None
         self.edge_highlight_line = None
+        
+        # ====================================================================
+        # [CHAOS MONKEY FEATURE] Broken Edges Tracking
+        # ====================================================================
+        # Kullanıcı sağ tıklayarak kırdığı edge'leri takip eder.
+        # - broken_edges: Kırılmış edge'lerin (u, v) tuple'larını tutar
+        # - broken_edge_lines: PyQtGraph'ın çizdiği görsel item'ları tutar
+        #   (clear() metodunda temizlenmesi için)
+        # 
+        # ÖNEMLİ: Edge kırıldığında NetworkX graph'tan da kaldırılır,
+        # ancak görsel olarak kırmızı kesikli çizgi olarak gösterilir.
+        # Bu sayede kullanıcı hangi linklerin kırıldığını görebilir.
+        # ====================================================================
+        self.broken_edges: Set[Tuple[int, int]] = set()
+        self.broken_edge_lines = []  # Visual representation of broken edges
         
         self._setup_ui()
         self.clear() # Set initial state
@@ -231,6 +255,15 @@ class GraphWidget(QWidget):
             
         self.graph = graph
         
+        # Reset broken edges when new graph is loaded
+        self.broken_edges.clear()
+        for line in self.broken_edge_lines:
+            try:
+                self.plot_widget.removeItem(line)
+            except:
+                pass
+        self.broken_edge_lines.clear()
+        
         if positions:
             self.positions = positions
         else:
@@ -266,10 +299,19 @@ class GraphWidget(QWidget):
             pos_array[node] = [x, y]
             node_data.append({'id': node})
         
-        # Edges (Background)
+        # ====================================================================
+        # [CHAOS MONKEY FEATURE] Edges (Background) - only draw non-broken edges
+        # ====================================================================
+        # Normal edge'ler çizilirken, broken_edges set'indeki edge'ler atlanır.
+        # Broken edge'ler daha sonra _draw_broken_edge() ile ayrı olarak
+        # kırmızı kesikli çizgi olarak çizilir.
+        # ====================================================================
         edge_x = []
         edge_y = []
         for u, v in self.graph.edges():
+            # Skip broken edges (they're drawn separately)
+            if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
+                continue
             x1, y1 = self.positions[u]
             x2, y2 = self.positions[v]
             edge_x.extend([x1, x2, np.nan])
@@ -279,11 +321,28 @@ class GraphWidget(QWidget):
         edge_x = np.array(edge_x, dtype=float)
         edge_y = np.array(edge_y, dtype=float)
         
-        self.edge_lines = self.plot_widget.plot(
-            edge_x, edge_y,
-            pen=pg.mkPen(color=(71, 85, 105, 50), width=0.8), # slate-600 low alpha
-            connect='finite'
-        )
+        if len(edge_x) > 0:
+            self.edge_lines = self.plot_widget.plot(
+                edge_x, edge_y,
+                pen=pg.mkPen(color=(71, 85, 105, 50), width=0.8), # slate-600 low alpha
+                connect='finite'
+            )
+        else:
+            self.edge_lines = None
+        
+        # ====================================================================
+        # [CHAOS MONKEY FEATURE] Draw broken edges (red dashed)
+        # ====================================================================
+        # Tüm kırılmış edge'ler kırmızı kesikli çizgi olarak çizilir.
+        # Bu, kullanıcıya hangi linklerin kırıldığını görsel olarak gösterir.
+        # ====================================================================
+        # Draw broken edges (red dashed) - redraw all broken edges
+        for u, v in self.broken_edges:
+            self._draw_broken_edge(u, v)
+        
+        # Draw broken edges (red dashed)
+        for u, v in self.broken_edges:
+            self._draw_broken_edge(u, v)
         
         # Glow Items (Behind everything else)
         # Source Glow
@@ -495,6 +554,142 @@ class GraphWidget(QWidget):
             self.dest_scatter.setData(pos=[])
             self.dest_glow.setData(pos=[])
 
+    def _handle_edge_break(self, mouse_point):
+        """
+        [CHAOS MONKEY FEATURE] Sağ tıklama ile edge'i kır.
+        
+        Bu metod, kullanıcının mouse pozisyonuna en yakın edge'i bulur
+        ve eğer threshold içindeyse edge'i kırar.
+        
+        Args:
+            mouse_point: QPointF - Mouse'un view koordinatlarındaki pozisyonu
+        
+        İşlem Akışı:
+        1. Tüm edge'leri (normal + broken) kontrol et
+        2. Her edge için mouse noktasına olan mesafeyi hesapla
+        3. En yakın edge'i bul
+        4. Eğer threshold içindeyse ve henüz kırılmamışsa -> _break_edge() çağır
+        
+        Threshold: View genişliğinin %2'si (zoom seviyesine göre adaptif)
+        """
+        if self.graph is None:
+            return
+        
+        min_dist = float('inf')
+        closest_edge = None
+        
+        # Find closest edge to click point (including broken edges for visual feedback)
+        all_edges = list(self.graph.edges())
+        # Also check broken edges that might still be in positions
+        for u, v in list(self.broken_edges):
+            if u in self.positions and v in self.positions:
+                all_edges.append((u, v))
+        
+        for u, v in all_edges:
+            # Skip if already broken (we'll handle it separately)
+            if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
+                # But still check distance for visual feedback
+                pass
+            
+            if u not in self.positions or v not in self.positions:
+                continue
+            
+            x1, y1 = self.positions[u]
+            x2, y2 = self.positions[v]
+            
+            # Calculate distance from point to line segment
+            dist = self._point_to_line_distance(
+                mouse_point.x(), mouse_point.y(),
+                x1, y1, x2, y2
+            )
+            
+            if dist < min_dist:
+                min_dist = dist
+                closest_edge = (u, v)
+        
+        # Threshold for edge selection (adjust based on zoom level)
+        view_range = self.plot_widget.plotItem.vb.viewRange()
+        x_range = view_range[0][1] - view_range[0][0]
+        threshold = x_range * 0.02  # 2% of view width
+        
+        if min_dist < threshold and closest_edge:
+            u, v = closest_edge
+            # Only break if not already broken
+            if (u, v) not in self.broken_edges and (v, u) not in self.broken_edges:
+                self._break_edge(u, v)
+    
+    def _break_edge(self, u: int, v: int):
+        """
+        [CHAOS MONKEY FEATURE] Edge'i kır ve görsel olarak işaretle.
+        
+        Bu metod:
+        1. Edge'i broken_edges set'ine ekler
+        2. NetworkX graph'tan edge'i kaldırır (algoritmalar artık bu edge'i kullanamaz)
+        3. Görsel olarak kırmızı kesikli çizgi çizer
+        4. edge_broken signal'ini emit eder (MainWindow otomatik re-optimization yapar)
+        
+        Args:
+            u, v: Edge'in node ID'leri
+        
+        ÖNEMLİ NOTLAR:
+        - Edge hem (u, v) hem de (v, u) formatında kontrol edilir (yönlü olmayan graf)
+        - Graph'tan kaldırılan edge artık pathfinding algoritmaları tarafından kullanılamaz
+        - Görsel temsil korunur (kullanıcı hangi linklerin kırıldığını görebilir)
+        """
+        # Check if already broken
+        if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
+            return
+        
+        # Add to broken edges set
+        self.broken_edges.add((u, v))
+        
+        # Remove from graph (but keep visual representation)
+        if self.graph.has_edge(u, v):
+            self.graph.remove_edge(u, v)
+        
+        # Visual update: Draw broken edge as red dashed line
+        self._draw_broken_edge(u, v)
+        
+        # Emit signal for auto-rerouting
+        # MainWindow._on_edge_broken() bu signal'i dinler ve otomatik olarak
+        # mevcut kaynak/hedef için yeniden optimizasyon yapar
+        self.edge_broken.emit(u, v)
+        
+        # Log message
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.info(f"🔴 Link {u}-{v} broken! Rerouting traffic...")
+    
+    def _draw_broken_edge(self, u: int, v: int):
+        """
+        [CHAOS MONKEY FEATURE] Kırılmış edge'i kırmızı kesikli çizgi olarak çiz.
+        
+        Görsel Geri Bildirim:
+        - Renk: Kırmızı (239, 68, 68) - Kullanıcıya link'in kırıldığını gösterir
+        - Stil: Kesikli çizgi (DashLine) - Normal edge'lerden ayırt edilebilir
+        - Kalınlık: 2.0px - Dikkat çekici
+        
+        Çizilen line item broken_edge_lines listesine eklenir,
+        böylece clear() çağrıldığında temizlenebilir.
+        """
+        if u not in self.positions or v not in self.positions:
+            return
+        
+        x1, y1 = self.positions[u]
+        x2, y2 = self.positions[v]
+        
+        # Create red dashed line
+        broken_line = self.plot_widget.plot(
+            [x1, x2], [y1, y2],
+            pen=pg.mkPen(
+                color=(239, 68, 68, 200),  # red-500 with high alpha
+                width=2.0,
+                style=Qt.DashLine
+            ),
+            connect='finite'
+        )
+        self.broken_edge_lines.append(broken_line)
+    
     def _on_node_hover(self, item, points, ev):
         if len(points) > 0:
             pt = points[0]
@@ -504,20 +699,35 @@ class GraphWidget(QWidget):
     def _on_mouse_clicked(self, event):
         if self.graph is None:
             return
-        pos = event.scenePos()
-        mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
         
-        min_dist = float('inf')
-        closest_node = None
-        
-        for node, (x, y) in self.positions.items():
-            dist = (mouse_point.x() - x) ** 2 + (mouse_point.y() - y) ** 2
-            if dist < min_dist:
-                min_dist = dist
-                closest_node = node
-        
-        if min_dist < 0.01:
-            self.node_clicked.emit(closest_node)
+        # Check if right mouse button (button 3 in PyQtGraph)
+        if event.button() != Qt.RightButton:
+            # Left click - node selection (existing behavior)
+            pos = event.scenePos()
+            mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
+            
+            min_dist = float('inf')
+            closest_node = None
+            
+            for node, (x, y) in self.positions.items():
+                dist = (mouse_point.x() - x) ** 2 + (mouse_point.y() - y) ** 2
+                if dist < min_dist:
+                    min_dist = dist
+                    closest_node = node
+            
+            if min_dist < 0.01:
+                self.node_clicked.emit(closest_node)
+        else:
+            # ================================================================
+            # [CHAOS MONKEY FEATURE] Right-click: Edge Break
+            # ================================================================
+            # Kullanıcı bir edge'e sağ tıkladığında, o edge kırılır.
+            # Mouse pozisyonu view koordinatlarına çevrilir ve
+            # _handle_edge_break() metodu en yakın edge'i bulup kırar.
+            # ================================================================
+            pos = event.scenePos()
+            mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
+            self._handle_edge_break(mouse_point)
     
     def _on_mouse_moved(self, pos):
         """Mouse hareket event'i - edge hover için."""
@@ -701,14 +911,57 @@ class GraphWidget(QWidget):
             self.node_labels.append(text)
             
     def clear(self):
+        """
+        Widget'ı temizle ve tüm state'i sıfırla.
+        
+        [CHAOS MONKEY FEATURE] Broken edges de burada temizlenir.
+        Yeni bir graf yüklendiğinde veya reset yapıldığında,
+        önceki broken edge'ler sıfırlanır.
+        """
         self.graph = None
         self.positions = {}
         self.path = []
         self.source = None
         self.destination = None
         self.current_hovered_edge = None
+        # [CHAOS MONKEY] Clear broken edges when graph is cleared
+        self.broken_edges.clear()
+        self.broken_edge_lines.clear()
         self.plot_widget.clear()
         self.timer.stop()
+    
+    def reset_broken_edges(self):
+        """
+        [CHAOS MONKEY FEATURE] Tüm kırılmış edge'leri geri yükle (reset).
+        
+        Bu metod, kırılmış edge'leri NetworkX graph'a geri ekler ve
+        görsel temsillerini kaldırır. Kullanıcı "Reset" butonuna bastığında
+        veya manuel olarak edge'leri geri yüklemek istediğinde kullanılabilir.
+        
+        NOT: Edge attribute'ları (delay, reliability, bandwidth) kaybolabilir,
+        bu durumda varsayılan değerler kullanılır.
+        """
+        # Restore edges in graph
+        for u, v in list(self.broken_edges):
+            if not self.graph.has_edge(u, v):
+                # Re-add edge with default attributes if needed
+                # Note: Original attributes might be lost, so we use defaults
+                self.graph.add_edge(u, v)
+        
+        # Clear broken edges
+        self.broken_edges.clear()
+        
+        # Remove visual broken edge lines
+        for line in self.broken_edge_lines:
+            try:
+                self.plot_widget.removeItem(line)
+            except:
+                pass
+        self.broken_edge_lines.clear()
+        
+        # Redraw graph
+        if self.graph is not None:
+            self._draw_graph()
         
         if hasattr(self, 'placeholder'):
             self.placeholder.show()

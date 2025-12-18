@@ -339,10 +339,10 @@ class MainWindow(QMainWindow):
         self.legend_widget = LegendWidget(self.graph_widget)
         # Position will be set in resizeEvent
         
-        # Status bar (Hidden by default as we have footer, but kept for compatibility)
+        # Status bar
         self.status_bar = QStatusBar()
-        self.status_bar.hide()
         self.setStatusBar(self.status_bar)
+        self.status_bar.showMessage("Hazır", 2000)
         
     def resizeEvent(self, event):
         """Pencere boyutu değiştiğinde overlay pozisyonlarını güncelle."""
@@ -375,6 +375,14 @@ class MainWindow(QMainWindow):
         
         # Graph widget
         self.graph_widget.node_clicked.connect(self._on_node_clicked)
+        # ====================================================================
+        # [CHAOS MONKEY FEATURE] Edge Break Signal Connection
+        # ====================================================================
+        # GraphWidget'dan gelen edge_broken signal'ini dinler.
+        # Bir edge kırıldığında otomatik olarak _on_edge_broken() çağrılır
+        # ve sistem mevcut kaynak/hedef için yeniden optimizasyon yapar.
+        # ====================================================================
+        self.graph_widget.edge_broken.connect(self._on_edge_broken)
         
     def _on_generate_graph(self, n_nodes: int, prob: float, seed: int):
         self.control_panel.set_loading(True)
@@ -559,6 +567,67 @@ class MainWindow(QMainWindow):
             self.graph_widget.set_source_destination(
                 node_id, self.control_panel.spin_dest.value()
             )
+    
+    def _on_edge_broken(self, u: int, v: int):
+        """
+        [CHAOS MONKEY FEATURE] Edge kırıldığında otomatik olarak yeniden optimize et.
+        
+        Bu metod, GraphWidget'dan gelen edge_broken signal'ini işler.
+        
+        İşlem Akışı:
+        1. Graf kontrolü yapılır
+        2. Kaynak/hedef kontrolü yapılır (eğer aynıysa sadece mesaj gösterilir)
+        3. Kırılan edge sonrası yol kontrolü yapılır (NetworkX has_path)
+        4. Eğer yol varsa, mevcut algoritma ve ağırlıklarla otomatik re-optimization
+        5. Eğer yol yoksa kullanıcıya uyarı gösterilir
+        
+        Args:
+            u, v: Kırılan edge'in node ID'leri
+        
+        ÖNEMLİ NOTLAR:
+        - Edge GraphWidget'da zaten graph'tan kaldırılmıştır
+        - Mevcut control_panel ayarları (algoritma, ağırlıklar) kullanılır
+        - Status bar'da kullanıcıya bilgi mesajı gösterilir
+        """
+        if not self._check_graph():
+            return
+        
+        # Check if we have a current path and source/destination
+        source = self.control_panel.spin_source.value()
+        dest = self.control_panel.spin_dest.value()
+        
+        if source == dest:
+            # No valid source/destination, just show message
+            self.status_bar.showMessage(f"🔴 Link {u}-{v} kırıldı! Yeni yol hesaplamak için kaynak ve hedef seçin.", 5000)
+            return
+        
+        # Check if path exists after breaking the edge
+        try:
+            has_path = self.graph_service.has_path(source, dest)
+        except Exception:
+            has_path = False
+        
+        if not has_path:
+            QMessageBox.warning(
+                self, 
+                "Yol Bulunamadı", 
+                f"Link {u}-{v} kırıldıktan sonra {source} ve {dest} arasında yol kalmadı!"
+            )
+            self.graph_widget.set_path([])
+            self.results_panel.clear()
+            return
+        
+        # Auto-optimize with current settings
+        # Get current weights and algorithm from control panel
+        weights = self.control_panel._get_weights()
+        algorithm = self.control_panel._get_algorithm_key()
+        
+        if algorithm and weights:
+            self.status_bar.showMessage(f"🔴 Link {u}-{v} kırıldı! Yeni yol hesaplanıyor...", 3000)
+            # Trigger optimization
+            self._on_optimize(algorithm, source, dest, weights)
+        else:
+            self.status_bar.showMessage(f"🔴 Link {u}-{v} kırıldı! Yeni yol hesaplamak için optimize edin.", 5000)
             
     def _on_reset(self):
         """Projeyi tamamen sıfırla."""

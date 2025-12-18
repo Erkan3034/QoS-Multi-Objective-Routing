@@ -136,8 +136,9 @@ tests/
 ## ✨ YENİ ÖZELLİK EKLEME
 ────────────────────────────────────────────────────────
 1) feature branch aç:
+``bash
 git checkout -b feature/<ozellik>
-
+``
 2) kodu yaz:
 src/... içinde doğru klasöre
 

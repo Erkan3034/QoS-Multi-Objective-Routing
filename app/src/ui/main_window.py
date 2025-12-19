@@ -300,6 +300,7 @@ class MainWindow(QMainWindow):
             }
         """)
         
+        
         right_sidebar = QWidget()
         right_sidebar.setStyleSheet("background: transparent;")
         right_layout = QVBoxLayout(right_sidebar)

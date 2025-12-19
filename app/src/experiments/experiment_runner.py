@@ -16,6 +16,8 @@ from dataclasses import dataclass, field
 from datetime import datetime
 import networkx as nx
 
+from src.core.config import Settings
+from src.core.logger import logger
 from src.services.metrics_service import MetricsService
 from src.algorithms.genetic_algorithm import GeneticAlgorithm
 from src.algorithms.aco import AntColonyOptimization

@@ -75,6 +75,10 @@ class Settings(BaseSettings):
     SARSA_EPSILON_END: float = 0.01
     SARSA_EPSILON_DECAY: float = 0.995
 
+    # Experiments
+    EXPERIMENT_N_REPEATS: int = 5
+    EXPERIMENT_TIMEOUT_SEC: int = 60
+
     class Config:
         env_file = ".env"
         case_sensitive = True

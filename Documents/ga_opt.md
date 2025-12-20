@@ -321,3 +321,55 @@ Genetic Algorithm optimizasyonu ile:
 **Tarih:** 2025
 **Versiyon:** v2.5 - Optimized for Experiments
 
+
+
+
+--
+Nedenini analiz ediyorum. Algoritmayı değiştirmiyorum, sadece açıklıyorum:
+
+
+[4 tools called]
+
+
+Nedenini açıklıyorum:
+
+
+[2 tools called]
+
+
+## Neden yoğun graflarda farklı yol bulma sayısı azalıyor?
+
+### 1. Fitness landscape düzleşiyor
+- Seyrek graflarda: Kaynak-hedef arasında az yol var; fitness değerleri arasında belirgin farklar olur.
+- Yoğun graflarda: Çok sayıda yol var; birçok yol benzer maliyete sahip. Fitness landscape düzleşir, birçok yol “optimal” görünür.
+
+### 2. Elitizm etkisi
+```python
+elite_count = max(1, int(self.population_size * self.elitism))  # ~%8-10
+```
+- Her nesilde en iyi %8-10 yol korunur.
+- Yoğun graflarda bu yollar genelde aynı birkaç yol olur (benzer maliyet).
+- Bu yollar popülasyonda baskın hale gelir.
+
+### 3. Popülasyon çeşitliliği hızla azalıyor
+- Seyrek graflarda: Farklı yollar farklı fitness’lere sahip; çeşitlilik korunur.
+- Yoğun graflarda: Benzer fitness’li yollar nedeniyle çeşitlilik hızla düşer (`diversity_threshold = 0.1`).
+- Mutation artar ama benzer maliyetli yollar üretir; çeşitlilik artmaz.
+
+### 4. Convergence hızlanıyor
+```python
+convergence_generations = 20  # 20 nesil boyunca iyileşme yoksa dur
+```
+- Yoğun graflarda algoritma hızlı converge eder.
+- İlk 2-3 çalıştırmada farklı yollar bulunur; sonrasında aynı optimal yollar tekrar bulunur.
+
+### 5. Tournament selection bias
+- Tournament selection benzer fitness’li yollar arasından seçim yapar.
+- Yoğun graflarda birçok yol benzer olduğu için seçim çeşitliliği azalır.
+
+### Sonuç
+- Seyrek graflarda: Farklı yollar farklı fitness’lere sahip → her çalıştırmada farklı yollar bulunur.
+- Yoğun graflarda: Birçok yol benzer fitness’e sahip → elitizm ve convergence nedeniyle aynı birkaç yol tekrar bulunur.
+
+Bu beklenen bir davranış. Yoğun graflarda gerçekten birçok yol benzer maliyete sahip olduğu için algoritma bu yolları buluyor; bu bir hata değil.
+--

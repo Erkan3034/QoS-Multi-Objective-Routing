@@ -7,7 +7,7 @@ import random
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QMessageBox, QStatusBar, QApplication, QTabWidget, QSplitter,
-    QScrollArea, QFrame, QFileDialog
+    QScrollArea, QFrame, QFileDialog, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from typing import Dict, List, Optional
@@ -28,10 +28,12 @@ from src.ui.components.experiments_panel import ExperimentsPanel
 from src.ui.components.legend_widget import LegendWidget
 from src.ui.components.path_info_widget import PathInfoWidget
 from src.ui.components.test_results_dialog import TestResultsDialog
+from src.ui.components.convergence_widget import ConvergenceWidget
 
 from src.services.graph_service import GraphService
 from src.services.metrics_service import MetricsService
 from src.algorithms import ALGORITHMS
+from src.workers.optimization_worker import OptimizationWorker as GenericOptimizationWorker
 
 class GraphGenerationWorker(QThread):
     """Graf oluşturma thread'i."""
@@ -54,8 +56,10 @@ class GraphGenerationWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+# [DEPRECATED] Old OptimizationWorker - kept for backward compatibility
+# New code should use GenericOptimizationWorker from src.workers.optimization_worker
 class OptimizationWorker(QThread):
-    """Arka plan optimizasyon thread'i."""
+    """Arka plan optimizasyon thread'i (Legacy - for backward compatibility)."""
     
     finished = pyqtSignal(object)  # result
     error = pyqtSignal(str)
@@ -244,18 +248,65 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.header_widget)
         
         # 2. Content Area
+        # [UI REFACTOR] Responsive grid system: Left (20%) | Center (60%) | Right (20%)
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
-        content_layout.setSpacing(16)
-        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(20)  # Increased spacing for better breathing room
+        content_layout.setContentsMargins(20, 20, 20, 20)  # Increased margins
         
-        # Left Panel (Control Panel)
+        # Left Panel (Control Panel) - ~20% width
+        # Wrap in scroll area to prevent cutoff issues
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #0f172a;
+                width: 8px;
+                margin: 0;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #475569;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+        
         self.control_panel = ControlPanel()
-        content_layout.addWidget(self.control_panel)
+        left_scroll.setWidget(self.control_panel)
+        # Set minimum width but allow expansion
+        left_scroll.setMinimumWidth(280)
+        left_scroll.setMaximumWidth(320)
+        # Ensure scroll area respects widget's minimum height
+        left_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        content_layout.addWidget(left_scroll, 2)  # Stretch factor 2 (~20%)
         
-        # Right Panel Container (Scrollable Sidebar)
+        # Center Panel (Graph) - ~60% width, primary focus
+        self.graph_widget = GraphWidget()
+        # Set size policy for proper expansion
+        self.graph_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        content_layout.addWidget(self.graph_widget, 6)  # Stretch factor 6 (~60%)
+        
+        # Right Panel Container (Scrollable Sidebar) - ~20% width
         right_scroll = QScrollArea()
-        right_scroll.setFixedWidth(340) # 320 content + 20 scroll
+        right_scroll.setMinimumWidth(320)
+        right_scroll.setMaximumWidth(360)
         right_scroll.setWidgetResizable(True)
         right_scroll.setFrameShape(QFrame.NoFrame)
         right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -293,28 +344,26 @@ class MainWindow(QMainWindow):
         right_sidebar = QWidget()
         right_sidebar.setStyleSheet("background: transparent;")
         right_layout = QVBoxLayout(right_sidebar)
-        right_layout.setContentsMargins(0, 0, 10, 0) # Right margin for scrollbar breathing room
-        right_layout.setSpacing(16)
+        right_layout.setContentsMargins(0, 0, 12, 0)  # Right margin for scrollbar breathing room
+        right_layout.setSpacing(20)  # Increased spacing between sections
         
-        # Results Panel (Top)
-        # Results Panel (Top)
+        # Results Panel (Top) - Flexible, can shrink if needed
         self.results_panel = ResultsPanel()
-        right_layout.addWidget(self.results_panel, 1) # Stretch to fill available space
+        right_layout.addWidget(self.results_panel, 3)  # Stretch factor 3 (gives priority but allows shrinking)
         
-        # Experiments Panel (Bottom)
+        # [LIVE CONVERGENCE PLOT] Convergence widget for GA progress visualization
+        # Give it more space with minimum height
+        self.convergence_widget = ConvergenceWidget()
+        self.convergence_widget.setMinimumHeight(220)  # Ensure adequate height
+        right_layout.addWidget(self.convergence_widget, 2)  # Stretch factor 2
+        
+        # Experiments Panel (Bottom) - Fixed size when visible
         self.experiments_panel = ExperimentsPanel()
-        self.experiments_panel.hide() # Hidden by default
-        right_layout.addWidget(self.experiments_panel)
-        
-        # right_layout.addStretch() # Removed to allow results_panel to expand
+        self.experiments_panel.hide()  # Hidden by default
+        right_layout.addWidget(self.experiments_panel, 1)  # Stretch factor 1 (lowest priority)
         
         right_scroll.setWidget(right_sidebar)
-        content_layout.addWidget(right_scroll)
-        
-        # Center (Graph) - Correct placement between Left and Right
-        # Note: We need to insert it at index 1
-        self.graph_widget = GraphWidget()
-        content_layout.insertWidget(1, self.graph_widget, 1)
+        content_layout.addWidget(right_scroll, 2)  # Stretch factor 2 (~20%)
         
         main_layout.addWidget(content_widget, 1)
         
@@ -469,9 +518,36 @@ class MainWindow(QMainWindow):
         self.control_panel.set_loading(True)
         self.graph_widget.set_source_destination(source, dest)
         
-        self.current_worker = OptimizationWorker(
-            self.graph_service.graph, algorithm, source, dest, weights
+        # [LIVE CONVERGENCE PLOT] Use generic OptimizationWorker for ALL algorithms
+        # Reset convergence plot for new optimization
+        self.convergence_widget.reset_plot()
+        
+        # Instantiate the algorithm class
+        # [FIX] Create fresh instance each time to ensure weights are properly applied
+        # Don't use seed to allow different results with same weights (stochastic behavior)
+        try:
+            algorithm_name, AlgoClass = ALGORITHMS[algorithm]
+            # Create new instance without seed to ensure non-deterministic results
+            # This allows the algorithm to find different paths when weights change
+            algorithm_instance = AlgoClass(graph=self.graph_service.graph, seed=None)
+        except KeyError:
+            QMessageBox.critical(self, "Hata", f"Bilinmeyen algoritma: {algorithm}")
+            self.control_panel.set_loading(False)
+            return
+        
+        # Use generic OptimizationWorker which supports progress callbacks for all algorithms
+        self.current_worker = GenericOptimizationWorker(
+            algorithm_instance=algorithm_instance,
+            algorithm_name=algorithm_name,
+            graph=self.graph_service.graph,
+            source=source,
+            dest=dest,
+            weights=weights
         )
+        
+        # Connect progress signal to convergence widget (works for all algorithms now)
+        self.current_worker.progress_data.connect(self.convergence_widget.update_plot)
+        
         self.current_worker.finished.connect(self._on_optimization_finished)
         self.current_worker.error.connect(self._on_error)
         self.current_worker.start()
@@ -483,6 +559,9 @@ class MainWindow(QMainWindow):
         self.graph_widget.set_path(result.path)
         self.results_panel.show_single_result(result)
         self.path_info_widget.update_path(result.path)
+        
+        # [LIVE CONVERGENCE PLOT] Keep convergence widget visible if it was used (GA algorithm)
+        # It will be hidden automatically for non-GA algorithms in _on_optimize
         
     def _on_compare(self, source: int, dest: int, weights: Dict):
         if not self._check_graph(): return
@@ -646,6 +725,9 @@ class MainWindow(QMainWindow):
         self.results_panel.clear()
         self.path_info_widget.hide()
         self.experiments_panel.hide()
+        # [LIVE CONVERGENCE PLOT] Reset and hide convergence widget
+        self.convergence_widget.reset_plot()
+        self.convergence_widget.hide()
         
         # Reset Header Stats
         self.header_widget.update_stats(0, 0, False)

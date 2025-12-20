@@ -16,7 +16,7 @@ import random
 import time
 import math
 import networkx as nx
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from dataclasses import dataclass
 
 from src.services.metrics_service import MetricsService
@@ -106,7 +106,8 @@ class SimulatedAnnealing:
         self,
         source: int,
         destination: int,
-        weights: Dict[str, float] = None
+        weights: Dict[str, float] = None,
+        progress_callback: Optional[Callable[[int, float], None]] = None
     ) -> SAResult:
         """
         Optimal yolu bul.
@@ -192,6 +193,16 @@ class SimulatedAnnealing:
                 
                 self.fitness_history.append(best_fitness)
                 self.temperature_history.append(temperature)
+                
+                # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
+                # Call at each iteration (not just temperature change) for smoother updates
+                if progress_callback:
+                    try:
+                        progress_callback(iteration, best_fitness)
+                    except Exception:
+                        # Don't let callback errors break the optimization
+                        pass
+                
                 iteration += 1
             
             # Sıcaklığı düşür

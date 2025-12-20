@@ -16,7 +16,7 @@ import random
 import time
 import math
 import networkx as nx
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from dataclasses import dataclass
 from collections import defaultdict
 
@@ -111,7 +111,8 @@ class AntColonyOptimization:
         self,
         source: int,
         destination: int,
-        weights: Dict[str, float] = None
+        weights: Dict[str, float] = None,
+        progress_callback: Optional[Callable[[int, float], None]] = None
     ) -> ACOResult:
         """
         Optimal yolu bul.
@@ -172,6 +173,14 @@ class AntColonyOptimization:
                 self.avg_fitness_history.append(
                     sum(ant_fitness_scores) / len(ant_fitness_scores)
                 )
+            
+            # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
+            if progress_callback:
+                try:
+                    progress_callback(iteration, best_fitness)
+                except Exception:
+                    # Don't let callback errors break the optimization
+                    pass
             
             # Feromonları güncelle
             self._update_pheromones(ant_paths, ant_fitness_scores, best_path, best_fitness)

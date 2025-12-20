@@ -26,7 +26,9 @@ class ControlPanel(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(260)
+        # Use minimum width instead of fixed to allow flexibility
+        self.setMinimumWidth(260)
+        self.setMaximumWidth(300)
         self._demands: List[Tuple[int, int, int]] = []
         self._setup_ui()
     
@@ -34,8 +36,8 @@ class ControlPanel(QWidget):
         """UI kurulumu."""
         # Main Layout (Root)
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
+        main_layout.setContentsMargins(0, 0, 0, 8)  # Bottom margin to ensure reset button is fully visible
+        main_layout.setSpacing(8)  # Spacing between scroll area and reset button
         
         # Scroll Area
         scroll = QScrollArea()
@@ -77,8 +79,8 @@ class ControlPanel(QWidget):
         
         # Content Layout
         layout = QVBoxLayout(content_widget)
-        layout.setSpacing(10) 
-        layout.setContentsMargins(0, 0, 4, 0) # Right margin for scrollbar
+        layout.setSpacing(16)  # Increased spacing between sections for better breathing room
+        layout.setContentsMargins(0, 0, 4, 0)  # Right margin for scrollbar, no bottom margin (reset button is outside)
         
         # === GRAF OLUŞTURMA ===
         graph_group = QGroupBox()
@@ -365,14 +367,19 @@ class ControlPanel(QWidget):
 
         layout.addStretch()
         
-        # Reset Button (Pinned to bottom of scroll?)
-        # Better to put reset button OUTSIDE scroll if we want it always visible, 
-        # or inside if we want it at the very bottom of content.
-        # User request says "scroll enabled", usually main actions stay visible or loop.
-        # Let's put it inside for now as "footer" of content.
+        # Content Layout - Add stretch before reset button to push it down
+        # (Reset button will be moved outside scroll area below)
+        layout.addStretch()
+
+        scroll.setWidget(content_widget)
+        main_layout.addWidget(scroll, 1)  # Stretch factor 1 to fill available space
         
+        # Reset Button - OUTSIDE scroll area so it's always visible
+        # This ensures the button is never cut off and always accessible
         self.btn_reset = QPushButton("Projeyi Sıfırla")
         self.btn_reset.setFlat(True)
+        self.btn_reset.setMinimumHeight(44)  # Minimum height to ensure full visibility
+        self.btn_reset.setFixedHeight(44)  # Fixed height for consistency
         self.btn_reset.setCursor(Qt.PointingHandCursor)
         self.btn_reset.setStyleSheet("""
             QPushButton {
@@ -380,19 +387,20 @@ class ControlPanel(QWidget):
                 font-weight: bold;
                 border: 1px solid #ef4444;
                 border-radius: 8px;
-                padding: 8px;
-                margin-top: 8px; 
+                padding: 10px 12px;
                 background-color: transparent;
             }
             QPushButton:hover {
-                background-color: rgba(239, 68, 68, 0.1);
+                background-color: rgba(239, 68, 68, 0.15);
+                border-color: #f87171;
+            }
+            QPushButton:pressed {
+                background-color: rgba(239, 68, 68, 0.25);
             }
         """)
         self.btn_reset.clicked.connect(lambda: self.reset_requested.emit())
-        layout.addWidget(self.btn_reset)
-
-        scroll.setWidget(content_widget)
-        main_layout.addWidget(scroll)
+        # Add button with no stretch factor and ensure it's at the bottom
+        main_layout.addWidget(self.btn_reset, 0, Qt.AlignBottom)  # Align to bottom, no stretch
     
     def _create_weight_row(self, label, val, color):
         """Ağırlık satırı slider + label."""

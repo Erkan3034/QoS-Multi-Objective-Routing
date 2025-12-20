@@ -107,7 +107,7 @@ class RepeatResult:
     bandwidth_requirement: float
     results: List[AlgorithmResult]
     
-    # İstatistikler
+    # İstatistiklerr
     avg_cost: float = 0.0
     std_cost: float = 0.0
     min_cost: float = 0.0

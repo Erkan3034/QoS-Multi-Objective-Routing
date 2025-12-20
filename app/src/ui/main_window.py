@@ -27,6 +27,7 @@ from src.ui.components.footer_widget import FooterWidget
 from src.ui.components.experiments_panel import ExperimentsPanel
 from src.ui.components.legend_widget import LegendWidget
 from src.ui.components.path_info_widget import PathInfoWidget
+from src.ui.components.test_results_dialog import TestResultsDialog
 
 from src.services.graph_service import GraphService
 from src.services.metrics_service import MetricsService
@@ -157,7 +158,7 @@ class ComparisonWorker(QThread):
 class ExperimentsWorker(QThread):
     """Toplu deney çalıştırma thread'i."""
     
-    finished = pyqtSignal(str)  # summary
+    finished = pyqtSignal(dict)  # result dict
     progress = pyqtSignal(int, int, str) # current, total, message
     error = pyqtSignal(str)
     
@@ -196,20 +197,8 @@ class ExperimentsWorker(QThread):
             # Deneyleri çalıştır
             result = runner.run_experiments(test_cases)
             
-            # Özet oluştur
-            comparison = result.get_comparison_table()
-            summary = f"✅ Deney Tamamlandı!\n\n"
-            summary += f"Test Sayısı: {len(test_cases)}\n"
-            summary += f"Tekrar Sayısı: {self.n_repeats}\n"
-            summary += f"Toplam Süre: {result.total_time_sec:.2f} saniye\n"
-            summary += f"Başarısız Test: {len(result.failure_report.failed_cases)}\n\n"
-            summary += "Algoritma Karşılaştırması:\n"
-            for algo in comparison:
-                summary += f"  • {algo['algorithm']}: "
-                summary += f"Ort. Maliyet={algo['overall_avg_cost']:.4f}, "
-                summary += f"Başarı Oranı={algo['success_rate']*100:.1f}%\n"
-            
-            self.finished.emit(summary)
+            # Sonucu dictionary olarak gönder
+            self.finished.emit(result.to_dict())
             
         except Exception as e:
             import traceback
@@ -539,11 +528,21 @@ class MainWindow(QMainWindow):
         self.experiments_panel.set_progress(current, total)
         self.status_bar.showMessage(f"Deney: {current}/{total} - {message}")
         
-    def _on_experiments_finished(self, summary):
+    def _on_experiments_finished(self, result_data: dict):
         self.experiments_panel.set_loading(False)
-        self.experiments_panel.set_finished(summary)
-        self.status_bar.showMessage("Deney tamamlandı!", 5000)
-        QMessageBox.information(self, "Deney Tamamlandı", summary)
+        
+        # Paneldeki kısa özeti de güncelle (string formatla)
+        summary_text = (
+            f"✅ Tamamlandı!\n"
+            f"Test: {result_data.get('n_test_cases', 0)}\n"
+            f"Süre: {result_data.get('total_time_sec', 0)}s"
+        )
+        self.experiments_panel.set_finished(summary_text)
+        self.status_bar.showMessage("Dehey tamamlandı!", 5000)
+        
+        # Yeni dialogu göster
+        dialog = TestResultsDialog(result_data, self)
+        dialog.exec_()
         
     def _on_experiment_error(self, error_msg):
         self.experiments_panel.set_loading(False)

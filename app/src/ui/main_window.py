@@ -7,7 +7,7 @@ import random
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QMessageBox, QStatusBar, QApplication, QTabWidget, QSplitter,
-    QScrollArea, QFrame, QFileDialog
+    QScrollArea, QFrame, QFileDialog, QSizePolicy
 )
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from typing import Dict, List, Optional
@@ -248,18 +248,65 @@ class MainWindow(QMainWindow):
         main_layout.addWidget(self.header_widget)
         
         # 2. Content Area
+        # [UI REFACTOR] Responsive grid system: Left (20%) | Center (60%) | Right (20%)
         content_widget = QWidget()
         content_layout = QHBoxLayout(content_widget)
-        content_layout.setSpacing(16)
-        content_layout.setContentsMargins(16, 16, 16, 16)
+        content_layout.setSpacing(20)  # Increased spacing for better breathing room
+        content_layout.setContentsMargins(20, 20, 20, 20)  # Increased margins
         
-        # Left Panel (Control Panel)
+        # Left Panel (Control Panel) - ~20% width
+        # Wrap in scroll area to prevent cutoff issues
+        left_scroll = QScrollArea()
+        left_scroll.setWidgetResizable(True)
+        left_scroll.setFrameShape(QFrame.NoFrame)
+        left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        left_scroll.setStyleSheet("""
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #0f172a;
+                width: 8px;
+                margin: 0;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #475569;
+                min-height: 30px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background: #64748b;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+        """)
+        
         self.control_panel = ControlPanel()
-        content_layout.addWidget(self.control_panel)
+        left_scroll.setWidget(self.control_panel)
+        # Set minimum width but allow expansion
+        left_scroll.setMinimumWidth(280)
+        left_scroll.setMaximumWidth(320)
+        # Ensure scroll area respects widget's minimum height
+        left_scroll.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+        content_layout.addWidget(left_scroll, 2)  # Stretch factor 2 (~20%)
         
-        # Right Panel Container (Scrollable Sidebar)
+        # Center Panel (Graph) - ~60% width, primary focus
+        self.graph_widget = GraphWidget()
+        # Set size policy for proper expansion
+        self.graph_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        content_layout.addWidget(self.graph_widget, 6)  # Stretch factor 6 (~60%)
+        
+        # Right Panel Container (Scrollable Sidebar) - ~20% width
         right_scroll = QScrollArea()
-        right_scroll.setFixedWidth(340) # 320 content + 20 scroll
+        right_scroll.setMinimumWidth(320)
+        right_scroll.setMaximumWidth(360)
         right_scroll.setWidgetResizable(True)
         right_scroll.setFrameShape(QFrame.NoFrame)
         right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -297,32 +344,26 @@ class MainWindow(QMainWindow):
         right_sidebar = QWidget()
         right_sidebar.setStyleSheet("background: transparent;")
         right_layout = QVBoxLayout(right_sidebar)
-        right_layout.setContentsMargins(0, 0, 10, 0) # Right margin for scrollbar breathing room
-        right_layout.setSpacing(16)
+        right_layout.setContentsMargins(0, 0, 12, 0)  # Right margin for scrollbar breathing room
+        right_layout.setSpacing(20)  # Increased spacing between sections
         
-        # Results Panel (Top)
-        # Results Panel (Top)
+        # Results Panel (Top) - Flexible, can shrink if needed
         self.results_panel = ResultsPanel()
-        right_layout.addWidget(self.results_panel, 1) # Stretch to fill available space
+        right_layout.addWidget(self.results_panel, 3)  # Stretch factor 3 (gives priority but allows shrinking)
         
         # [LIVE CONVERGENCE PLOT] Convergence widget for GA progress visualization
+        # Give it more space with minimum height
         self.convergence_widget = ConvergenceWidget()
-        right_layout.addWidget(self.convergence_widget)
+        self.convergence_widget.setMinimumHeight(220)  # Ensure adequate height
+        right_layout.addWidget(self.convergence_widget, 2)  # Stretch factor 2
         
-        # Experiments Panel (Bottom)
+        # Experiments Panel (Bottom) - Fixed size when visible
         self.experiments_panel = ExperimentsPanel()
-        self.experiments_panel.hide() # Hidden by default
-        right_layout.addWidget(self.experiments_panel)
-        
-        # right_layout.addStretch() # Removed to allow results_panel to expand
+        self.experiments_panel.hide()  # Hidden by default
+        right_layout.addWidget(self.experiments_panel, 1)  # Stretch factor 1 (lowest priority)
         
         right_scroll.setWidget(right_sidebar)
-        content_layout.addWidget(right_scroll)
-        
-        # Center (Graph) - Correct placement between Left and Right
-        # Note: We need to insert it at index 1
-        self.graph_widget = GraphWidget()
-        content_layout.insertWidget(1, self.graph_widget, 1)
+        content_layout.addWidget(right_scroll, 2)  # Stretch factor 2 (~20%)
         
         main_layout.addWidget(content_widget, 1)
         
@@ -482,9 +523,13 @@ class MainWindow(QMainWindow):
         self.convergence_widget.reset_plot()
         
         # Instantiate the algorithm class
+        # [FIX] Create fresh instance each time to ensure weights are properly applied
+        # Don't use seed to allow different results with same weights (stochastic behavior)
         try:
             algorithm_name, AlgoClass = ALGORITHMS[algorithm]
-            algorithm_instance = AlgoClass(graph=self.graph_service.graph)
+            # Create new instance without seed to ensure non-deterministic results
+            # This allows the algorithm to find different paths when weights change
+            algorithm_instance = AlgoClass(graph=self.graph_service.graph, seed=None)
         except KeyError:
             QMessageBox.critical(self, "Hata", f"Bilinmeyen algoritma: {algorithm}")
             self.control_panel.set_loading(False)

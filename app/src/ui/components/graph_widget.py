@@ -133,6 +133,10 @@ class GraphWidget(QWidget):
         self.plot_widget.setBackground('#111827') # Match parent bg
         self.plot_widget.setFrameShape(QFrame.NoFrame) # Remove internal border
         
+        # Set size policy for proper expansion
+        from PyQt5.QtWidgets import QSizePolicy
+        self.plot_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        
         self.plot_widget.setAspectLocked(True)
         self.plot_widget.showGrid(x=False, y=False)
         self.plot_widget.hideAxis('left')

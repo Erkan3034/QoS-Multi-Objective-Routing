@@ -18,7 +18,7 @@ except ImportError:
     class Line2D:
         pass
 
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QLabel, QSizePolicy
 from PyQt5.QtCore import Qt
 from typing import List
 
@@ -64,10 +64,13 @@ class ConvergenceWidget(QWidget):
         """)
         layout.addWidget(title_label)
         
-        # Matplotlib Figure
-        self.figure = Figure(figsize=(3.2, 2.0), facecolor='#1e293b')
+        # Matplotlib Figure - Larger size for better visibility
+        self.figure = Figure(figsize=(3.5, 2.5), facecolor='#1e293b')
         self.canvas = FigureCanvas(self.figure)
         self.canvas.setStyleSheet("background: transparent;")
+        # Set size policy to allow expansion
+        self.canvas.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.canvas.setMinimumHeight(180)  # Minimum height for visibility
         
         # Axes setup
         self.ax = self.figure.add_subplot(111, facecolor='#1e293b')

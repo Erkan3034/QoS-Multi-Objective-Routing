@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from functools import lru_cache, partial
 import networkx as nx
 import multiprocessing
+import os
 
 # Servis Import Kontrolü
 try:
@@ -234,6 +235,10 @@ class GeneticAlgorithm:
         else:
             self.use_parallel = bool(use_parallel)
         
+        # [FIX] Store seed for reference
+        # If seed is None, random will use system time (non-deterministic, different each run)
+        # If seed is set, results will be deterministic (useful for experiments)
+        self._seed = seed
         if seed is not None:
             random.seed(seed)
         
@@ -266,9 +271,32 @@ class GeneticAlgorithm:
         start_time = time.perf_counter()
         
         self._validate_inputs(source, destination, weights)
+        
+        # [FIX] Always update weights FIRST to ensure new optimization uses new weights
+        # This is critical: weights affect fitness calculation throughout the algorithm
         self.current_weights = weights or {'delay': 0.33, 'reliability': 0.33, 'resource': 0.34}
         
+        # [FIX] Always clear cache to force fresh calculation with new weights
+        # Weights affect fitness, so cached paths may not be optimal with new weights
         self._cached_shortest_path.cache_clear()
+        
+        # [FIX] Reset statistics to ensure clean state for new optimization
+        self.best_fitness_history.clear()
+        self.avg_fitness_history.clear()
+        self.diversity_history.clear()
+        
+        # [FIX] Reset mutation rate to initial value for fresh start
+        self.mutation_rate = self.initial_mutation_rate
+        
+        # [FIX] Reset random state if no seed was set to ensure stochastic behavior
+        # This ensures different results even with same weights (exploration)
+        # If seed was set in __init__, it will remain deterministic (for experiments)
+        if not hasattr(self, '_seed') or self._seed is None:
+            # [FIX] Use system time + process ID to seed random for non-deterministic results
+            # This ensures each optimization run explores different paths
+            # Combining time and PID ensures uniqueness even in rapid successive calls
+            import time as time_module
+            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
         
         population = self._initialize_population(source, destination)
         
@@ -463,9 +491,11 @@ class GeneticAlgorithm:
         
         # [IMPROVEMENT 2] Fitness-based guided initialization
         # Önce birkaç guided path oluştur, en iyilerini seç
-        # NOT: Bu kısım optimize() metodunda weights set edildikten sonra çağrılıyor
-        # Ama initialize_population optimize() içinde çağrılıyor, bu yüzden weights hazır
-        if self.use_standard_metrics and self.metrics_service and hasattr(self, 'current_weights') and self.current_weights:
+        # [FIX] Use fitness-based initialization even in normal mode if weights are available
+        # This ensures that weight changes affect the initial population
+        if hasattr(self, 'current_weights') and self.current_weights:
+            # Use MetricsService if available, otherwise use internal fitness
+            use_metrics_service = (self.use_standard_metrics and self.metrics_service)
             # Standard metrics kullanılıyorsa, fitness'e göre seç
             candidate_paths = []
             for _ in range(min(50, self.population_size * 2)):
@@ -474,12 +504,23 @@ class GeneticAlgorithm:
                 else:
                     path = self._generate_random_path(source, destination)
                 if path and tuple(path) not in seen_paths:
-                    fitness = self.metrics_service.calculate_weighted_cost(
-                        path,
-                        self.current_weights.get('delay', 0.33),
-                        self.current_weights.get('reliability', 0.33),
-                        self.current_weights.get('resource', 0.34)
-                    )
+                    # [FIX] Calculate fitness using current weights (critical for weight changes)
+                    if use_metrics_service:
+                        # Use MetricsService for standard metrics
+                        fitness = self.metrics_service.calculate_weighted_cost(
+                            path,
+                            self.current_weights.get('delay', 0.33),
+                            self.current_weights.get('reliability', 0.33),
+                            self.current_weights.get('resource', 0.34)
+                        )
+                    else:
+                        # Use internal fitness worker for normalized metrics
+                        fitness = _fitness_worker(
+                            path, 
+                            self.graph, 
+                            self.current_weights, 
+                            0.0  # No bandwidth demand for initialization
+                        )
                     candidate_paths.append((fitness, path))
             
             # En iyi %50'sini seç

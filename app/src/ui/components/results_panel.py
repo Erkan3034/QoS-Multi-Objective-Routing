@@ -150,8 +150,8 @@ class ResultsPanel(QWidget):
         """)
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(12)
-        layout.setContentsMargins(16, 16, 16, 16)
+        layout.setSpacing(10)  # Slightly reduced spacing to give more room to convergence plot
+        layout.setContentsMargins(14, 14, 14, 14)  # Slightly reduced margins
         
         # === HEADER (Sonuçlar + Algo Tag) ===
         header_layout = QHBoxLayout()
@@ -236,6 +236,7 @@ class ResultsPanel(QWidget):
         # Path string "3 hop: 2 -> 45 -> 105 -> 249"
         self.lbl_path_value = QLabel("-")
         self.lbl_path_value.setWordWrap(True)
+        self.lbl_path_value.setTextInteractionFlags(Qt.TextSelectableByMouse)  # Allow text selection
         self.lbl_path_value.setStyleSheet("color: #f1f5f9; font-size: 15px; font-weight: bold; font-family: 'Consolas', monospace;")
         path_layout.addWidget(self.lbl_path_value)
         
@@ -394,6 +395,8 @@ class ResultsPanel(QWidget):
         # Value
         lbl_value = QLabel(value)
         lbl_value.setObjectName("ValueLabel") # Helper for finding later
+        lbl_value.setWordWrap(True)  # Enable word wrap for large numbers
+        lbl_value.setAlignment(Qt.AlignCenter)  # Center align for better appearance
         lbl_value.setStyleSheet("color: #f1f5f9; font-size: 16px; font-weight: bold; margin-top: 0px; border: none; background: transparent;")
         lay.addWidget(lbl_value)
         

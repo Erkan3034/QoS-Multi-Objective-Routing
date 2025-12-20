@@ -16,7 +16,7 @@ import random
 import time
 import math
 import networkx as nx
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Optional, Tuple, Set, Callable
 from dataclasses import dataclass
 
 from src.services.metrics_service import MetricsService
@@ -126,7 +126,8 @@ class ParticleSwarmOptimization:
         self,
         source: int,
         destination: int,
-        weights: Dict[str, float] = None
+        weights: Dict[str, float] = None,
+        progress_callback: Optional[Callable[[int, float], None]] = None
     ) -> PSOResult:
         """
         Optimal yolu bul.
@@ -207,6 +208,14 @@ class ParticleSwarmOptimization:
             valid_fitness = [p.fitness for p in particles if p.fitness != float('inf')]
             if valid_fitness:
                 self.avg_fitness_history.append(sum(valid_fitness) / len(valid_fitness))
+            
+            # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
+            if progress_callback:
+                try:
+                    progress_callback(iteration, gbest_fitness)
+                except Exception:
+                    # Don't let callback errors break the optimization
+                    pass
         
         elapsed_time = (time.perf_counter() - start_time) * 1000
         

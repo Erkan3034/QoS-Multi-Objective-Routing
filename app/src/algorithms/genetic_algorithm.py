@@ -15,7 +15,7 @@ import time
 import logging
 import threading
 import atexit
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Callable
 from dataclasses import dataclass, field
 from functools import lru_cache, partial
 import networkx as nx
@@ -259,7 +259,9 @@ class GeneticAlgorithm:
         source: int,
         destination: int,
         weights: Dict[str, float] = None,
-        bandwidth_demand: float = 0.0
+        bandwidth_demand: float = 0.0,
+        # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
+        progress_callback: Optional[Callable[[int, float], None]] = None
     ) -> GAResult:
         start_time = time.perf_counter()
         
@@ -308,6 +310,14 @@ class GeneticAlgorithm:
             
             diversity = self._calculate_diversity(population)
             self.diversity_history.append(diversity)
+            
+            # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
+            if progress_callback:
+                try:
+                    progress_callback(gen, best_fitness)
+                except Exception as e:
+                    # Don't let callback errors break the optimization
+                    logger.warning(f"Progress callback error: {e}")
             
             # 4. Erken Yakınsama Kontrolü
             if self._check_convergence(stagnation_counter):

@@ -28,10 +28,12 @@ from src.ui.components.experiments_panel import ExperimentsPanel
 from src.ui.components.legend_widget import LegendWidget
 from src.ui.components.path_info_widget import PathInfoWidget
 from src.ui.components.test_results_dialog import TestResultsDialog
+from src.ui.components.convergence_widget import ConvergenceWidget
 
 from src.services.graph_service import GraphService
 from src.services.metrics_service import MetricsService
 from src.algorithms import ALGORITHMS
+from src.workers.optimization_worker import OptimizationWorker as GenericOptimizationWorker
 
 class GraphGenerationWorker(QThread):
     """Graf oluşturma thread'i."""
@@ -54,8 +56,10 @@ class GraphGenerationWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+# [DEPRECATED] Old OptimizationWorker - kept for backward compatibility
+# New code should use GenericOptimizationWorker from src.workers.optimization_worker
 class OptimizationWorker(QThread):
-    """Arka plan optimizasyon thread'i."""
+    """Arka plan optimizasyon thread'i (Legacy - for backward compatibility)."""
     
     finished = pyqtSignal(object)  # result
     error = pyqtSignal(str)
@@ -301,6 +305,10 @@ class MainWindow(QMainWindow):
         self.results_panel = ResultsPanel()
         right_layout.addWidget(self.results_panel, 1) # Stretch to fill available space
         
+        # [LIVE CONVERGENCE PLOT] Convergence widget for GA progress visualization
+        self.convergence_widget = ConvergenceWidget()
+        right_layout.addWidget(self.convergence_widget)
+        
         # Experiments Panel (Bottom)
         self.experiments_panel = ExperimentsPanel()
         self.experiments_panel.hide() # Hidden by default
@@ -469,9 +477,32 @@ class MainWindow(QMainWindow):
         self.control_panel.set_loading(True)
         self.graph_widget.set_source_destination(source, dest)
         
-        self.current_worker = OptimizationWorker(
-            self.graph_service.graph, algorithm, source, dest, weights
+        # [LIVE CONVERGENCE PLOT] Use generic OptimizationWorker for ALL algorithms
+        # Reset convergence plot for new optimization
+        self.convergence_widget.reset_plot()
+        
+        # Instantiate the algorithm class
+        try:
+            algorithm_name, AlgoClass = ALGORITHMS[algorithm]
+            algorithm_instance = AlgoClass(graph=self.graph_service.graph)
+        except KeyError:
+            QMessageBox.critical(self, "Hata", f"Bilinmeyen algoritma: {algorithm}")
+            self.control_panel.set_loading(False)
+            return
+        
+        # Use generic OptimizationWorker which supports progress callbacks for all algorithms
+        self.current_worker = GenericOptimizationWorker(
+            algorithm_instance=algorithm_instance,
+            algorithm_name=algorithm_name,
+            graph=self.graph_service.graph,
+            source=source,
+            dest=dest,
+            weights=weights
         )
+        
+        # Connect progress signal to convergence widget (works for all algorithms now)
+        self.current_worker.progress_data.connect(self.convergence_widget.update_plot)
+        
         self.current_worker.finished.connect(self._on_optimization_finished)
         self.current_worker.error.connect(self._on_error)
         self.current_worker.start()
@@ -483,6 +514,9 @@ class MainWindow(QMainWindow):
         self.graph_widget.set_path(result.path)
         self.results_panel.show_single_result(result)
         self.path_info_widget.update_path(result.path)
+        
+        # [LIVE CONVERGENCE PLOT] Keep convergence widget visible if it was used (GA algorithm)
+        # It will be hidden automatically for non-GA algorithms in _on_optimize
         
     def _on_compare(self, source: int, dest: int, weights: Dict):
         if not self._check_graph(): return
@@ -646,6 +680,9 @@ class MainWindow(QMainWindow):
         self.results_panel.clear()
         self.path_info_widget.hide()
         self.experiments_panel.hide()
+        # [LIVE CONVERGENCE PLOT] Reset and hide convergence widget
+        self.convergence_widget.reset_plot()
+        self.convergence_widget.hide()
         
         # Reset Header Stats
         self.header_widget.update_stats(0, 0, False)

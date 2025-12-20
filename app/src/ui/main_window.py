@@ -198,7 +198,7 @@ class ExperimentsWorker(QThread):
             result = runner.run_experiments(test_cases)
             
             # Sonucu dictionary olarak gönder
-            self.finished.emit(result.to_dict())
+            self.finished.emit(result)
             
         except Exception as e:
             import traceback

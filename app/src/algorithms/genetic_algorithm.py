@@ -64,7 +64,6 @@ class GAConfig:
 # ---------------------------------------------------------------------------
 def _fitness_worker(path_list: List[int], graph: nx.Graph, weights: Dict[str, float], bw_demand: float) -> float:
     """
-    [MÜHENDİS NOTU]:
     Burası algoritmanın kalbi. Eskiden ham değerleri topluyorduk, bu yüzden
     Delay (örn: 50ms) Reliability'i (örn: 0.01) eziyordu.
     
@@ -183,13 +182,23 @@ class GeneticAlgorithm:
         convergence_generations: int = 20,
         diversity_threshold: float = 0.1,
         seed: int = None,
-        use_parallel: str = 'auto'
+        use_parallel: str = 'auto',
+        use_standard_metrics: bool = False
     ):
         if not graph or graph.number_of_nodes() == 0:
             raise ValueError("Graf verisi boş, yönlendirme yapılamaz.")
         
         self.graph = graph
         self.graph_size = graph.number_of_nodes()
+        
+        # [EXPERIMENT MODE] Diğer algoritmalarla adil karşılaştırma için
+        # Eğer True ise, MetricsService kullanılır (ACO, PSO ile aynı)
+        # Eğer False ise, normalize edilmiş fitness kullanılır (daha iyi performans)
+        self.use_standard_metrics = use_standard_metrics
+        if self.use_standard_metrics and MetricsService:
+            self.metrics_service = MetricsService(graph)
+        else:
+            self.metrics_service = None
         
         # Adaptive Parametreler
         base_pop = population_size or settings.GA_POPULATION_SIZE
@@ -202,7 +211,14 @@ class GeneticAlgorithm:
             self.population_size = population_size
 
         self.generations = generations or settings.GA_GENERATIONS
-        self.initial_mutation_rate = mutation_rate or settings.GA_MUTATION_RATE
+        # [IMPROVEMENT] Experiment mode'da daha agresif mutation
+        # Standard metrics kullanıldığında, daha fazla keşif yap
+        base_mutation = mutation_rate or settings.GA_MUTATION_RATE
+        if self.use_standard_metrics:
+            # Experiment mode: Daha agresif mutation (daha fazla keşif)
+            self.initial_mutation_rate = base_mutation * 1.5  # 0.1 -> 0.15
+        else:
+            self.initial_mutation_rate = base_mutation
         self.mutation_rate = self.initial_mutation_rate
         self.crossover_rate = crossover_rate or settings.GA_CROSSOVER_RATE
         self.elitism = elitism or settings.GA_ELITISM
@@ -328,6 +344,32 @@ class GeneticAlgorithm:
         bw_demand: float, 
         pool=None
     ) -> List[Tuple[List[int], float]]:
+        # [EXPERIMENT MODE] Eğer standard metrics kullanılıyorsa, MetricsService ile hesapla
+        if self.use_standard_metrics and self.metrics_service:
+            results = []
+            for path in population:
+                # Bandwidth kontrolü
+                if bw_demand > 0:
+                    min_bw = float('inf')
+                    for i in range(len(path) - 1):
+                        u, v = path[i], path[i+1]
+                        if self.graph.has_edge(u, v):
+                            min_bw = min(min_bw, self.graph[u][v].get('bandwidth', 1000.0))
+                    if min_bw < bw_demand:
+                        results.append((path, float('inf')))
+                        continue
+                
+                # MetricsService ile hesapla (ACO, PSO ile aynı)
+                fit = self.metrics_service.calculate_weighted_cost(
+                    path,
+                    self.current_weights['delay'],
+                    self.current_weights['reliability'],
+                    self.current_weights['resource']
+                )
+                results.append((path, fit))
+            return results
+        
+        # Normalize edilmiş fitness kullan (varsayılan, daha iyi performans)
         # Threshold Logic: Çok küçük popülasyonlar için process spawn etmeye değmez.
         should_use_parallel = (
             pool is not None and 
@@ -365,6 +407,14 @@ class GeneticAlgorithm:
             return ()
 
     def _initialize_population(self, source: int, destination: int) -> List[List[int]]:
+        """
+        [IMPROVED] Daha iyi başlangıç popülasyonu oluşturur.
+        
+        İyileştirmeler:
+        1. Multiple shortest path variations (k-weighted shortest paths)
+        2. Fitness-based guided initialization (daha iyi yollar)
+        3. Daha fazla çeşitlilik
+        """
         population = []
         seen_paths = set()
         
@@ -375,6 +425,60 @@ class GeneticAlgorithm:
             seen_paths.add(sp)
         else:
             return []
+        
+        # [IMPROVEMENT 1] K-weighted shortest paths ekle (çeşitlilik için)
+        # Farklı edge weight kombinasyonlarıyla shortest path'ler bul
+        try:
+            # Delay-based shortest path
+            delay_sp = nx.shortest_path(self.graph, source, destination, weight='delay')
+            if tuple(delay_sp) not in seen_paths:
+                population.append(list(delay_sp))
+                seen_paths.add(tuple(delay_sp))
+        except:
+            pass
+        
+        try:
+            # Reliability-based (inverse) shortest path
+            # Yüksek reliability'li edge'leri tercih et
+            reliability_graph = self.graph.copy()
+            for u, v in reliability_graph.edges():
+                rel = reliability_graph[u][v].get('reliability', 0.99)
+                reliability_graph[u][v]['weight'] = 1.0 / (rel + 0.01)  # Inverse
+            rel_sp = nx.shortest_path(reliability_graph, source, destination, weight='weight')
+            if tuple(rel_sp) not in seen_paths:
+                population.append(list(rel_sp))
+                seen_paths.add(tuple(rel_sp))
+        except:
+            pass
+        
+        # [IMPROVEMENT 2] Fitness-based guided initialization
+        # Önce birkaç guided path oluştur, en iyilerini seç
+        # NOT: Bu kısım optimize() metodunda weights set edildikten sonra çağrılıyor
+        # Ama initialize_population optimize() içinde çağrılıyor, bu yüzden weights hazır
+        if self.use_standard_metrics and self.metrics_service and hasattr(self, 'current_weights') and self.current_weights:
+            # Standard metrics kullanılıyorsa, fitness'e göre seç
+            candidate_paths = []
+            for _ in range(min(50, self.population_size * 2)):
+                if random.random() < self.guided_ratio:
+                    path = self._generate_guided_path(source, destination)
+                else:
+                    path = self._generate_random_path(source, destination)
+                if path and tuple(path) not in seen_paths:
+                    fitness = self.metrics_service.calculate_weighted_cost(
+                        path,
+                        self.current_weights.get('delay', 0.33),
+                        self.current_weights.get('reliability', 0.33),
+                        self.current_weights.get('resource', 0.34)
+                    )
+                    candidate_paths.append((fitness, path))
+            
+            # En iyi %50'sini seç
+            candidate_paths.sort(key=lambda x: x[0])
+            for _, path in candidate_paths[:len(candidate_paths)//2]:
+                pt = tuple(path)
+                if pt not in seen_paths and len(population) < self.population_size:
+                    population.append(path)
+                    seen_paths.add(pt)
         
         # Karışık Strateji: Guided (Akıllı) + Random (Çeşitlilik)
         attempts = 0
@@ -481,8 +585,15 @@ class GeneticAlgorithm:
         else: return self._mutate_node_replacement
 
     def _adjust_mutation_rate(self, diversity: float):
+        """
+        [IMPROVED] Daha agresif mutation rate ayarlama.
+        
+        Experiment mode'da daha fazla keşif yapmak için mutation rate'i artır.
+        """
         if diversity < self.diversity_threshold:
-            self.mutation_rate = min(0.3, self.initial_mutation_rate * 2.0)
+            # Çeşitlilik azaldıysa mutation'ı artır
+            max_mutation = 0.4 if self.use_standard_metrics else 0.3
+            self.mutation_rate = min(max_mutation, self.initial_mutation_rate * 2.5)
         else:
             self.mutation_rate = self.initial_mutation_rate
 

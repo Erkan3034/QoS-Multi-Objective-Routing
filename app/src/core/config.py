@@ -32,11 +32,12 @@ class Settings(BaseSettings):
     LINK_RELIABILITY_MAX: float = 0.999
     
     # Genetic Algorithm
-    GA_POPULATION_SIZE: int = 100
+    # [OPTIMIZED] Experiment mode için daha agresif parametreler
+    GA_POPULATION_SIZE: int = 150  # 100 -> 150 (daha fazla çeşitlilik)
     GA_GENERATIONS: int = 500
-    GA_MUTATION_RATE: float = 0.1
+    GA_MUTATION_RATE: float = 0.12  # 0.1 -> 0.12 (daha fazla keşif)
     GA_CROSSOVER_RATE: float = 0.8
-    GA_ELITISM: float = 0.1
+    GA_ELITISM: float = 0.08  # 0.1 -> 0.08 (daha az elitizm, daha fazla çeşitlilik)
     
     # Ant Colony Optimization
     ACO_N_ANTS: int = 50

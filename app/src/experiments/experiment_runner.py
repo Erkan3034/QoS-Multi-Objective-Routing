@@ -527,7 +527,16 @@ class ExperimentRunner:
         
         try:
             # Algoritma oluştur
-            algo = AlgoClass(graph=self.graph, seed=seed)
+            # [FAIR COMPARISON] GA ve ACO için standard metrics kullan
+            # Bu sayede tüm algoritmalar aynı fitness fonksiyonunu kullanır
+            algo_kwargs = {"graph": self.graph, "seed": seed}
+            if algo_name == "GeneticAlgorithm":
+                algo_kwargs["use_standard_metrics"] = True
+            elif algo_name == "AntColonyOptimization":
+                # ACO zaten MetricsService kullanıyor, değişiklik gerekmez
+                pass
+            
+            algo = AlgoClass(**algo_kwargs)
             
             # Optimizasyonu çalıştır
             start_time = time.perf_counter()

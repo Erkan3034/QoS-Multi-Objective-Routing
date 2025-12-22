@@ -1,12 +1,11 @@
 """
 Simulated Annealing (SA) – Routing için (Ayrık / Path-based)
 
-SA, kaynak (source) ile hedef (destination) arasında iyi bir yol bulmak için kullanılır.
-Mantık:
-- Çözüm = yol (düğüm listesi)
-- Amaç = ağırlıklı maliyeti minimize etmek (delay, reliability, resource)
-- Başta sıcaklık (T) yüksekken daha kötü çözümler bazen kabul edilir (local minima’dan kaçmak için)
-- T zamanla düşer ve algoritma en iyi çözüme yakınsar
+SA, source -> destination arasında ağırlıklı maliyeti minimize eden bir yol arar.
+- Çözüm (state) = yol (düğüm listesi)
+- Fitness = delay / reliability / resource ağırlıklı maliyet (küçük daha iyi)
+- T yüksekken kötü çözümler bazen kabul edilir (local minima’dan kaçmak için)
+- T soğutma ile düşer ve algoritma daha stabil çözüme yakınsar
 """
 
 from __future__ import annotations
@@ -15,42 +14,43 @@ import math
 import random
 import time
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Callable
 
 import networkx as nx
 
 from src.services.metrics_service import MetricsService
-from src.core.config import settings
+# from src.core.config import settings  # kullanılmıyorsa kaldır
+
 
 # =========================
 # 1) Parametreler (SAParams)
 # =========================
-# SA ayarları:
-# - Temperature schedule: başlangıç/bitiriş/cooling
-# - Her sıcaklıkta kaç deneme yapılacak
-# - Random walk ve segment arama limitleri
 @dataclass(frozen=True)
 class SAParams:
-    initial_temperature: float = 1000.0
+    # sıcaklık ayarları
+    initial_temperature: float = 300.0
     final_temperature: float = 0.01
-    cooling_rate: float = 0.995
-    iterations_per_temp: int = 10
+    cooling_rate: float = 0.98
+    iterations_per_temp: int = 5
+
+    # reproducibility
     seed: Optional[int] = None
 
+    # path üretimi limitleri
     max_initial_steps: int = 150
     max_segment_steps: int = 40
+
+    # opsiyonel global limit
     max_total_iterations: Optional[int] = None
+
+    # UI dostu ayarlar
+    progress_every: int = 25      # kaç iterasyonda bir callback
+    ui_yield_ms: float = 1.0      # küçük bekleme (ms) => UI/OS nefes
 
 
 # =========================
 # 2) Sonuç (SAResult)
 # =========================
-# optimize() çıktı bilgileri:
-# - path: bulunan en iyi yol
-# - fitness: en iyi maliyet (küçük daha iyi)
-# - iteration: en iyi yolun bulunduğu iterasyon
-# - final_temperature: bittiği sıcaklık
-# - computation_time_ms: çalışma süresi
 @dataclass
 class SAResult:
     path: List[int]
@@ -70,42 +70,77 @@ class SAResult:
 
 
 # =========================
-# 3) SimulatedAnnealing Sınıfı
+# 3) SimulatedAnnealing
 # =========================
-# Akış:
-# - başlangıç çözümü üret (random walk)
-# - komşu çözüm üret (swap/segment/shortcut)
-# - kabul kuralı uygula (delta ve exp(-delta/T))
-# - en iyi çözümü (best) tut + history kaydet
 class SimulatedAnnealing:
-    def __init__(self, graph: nx.Graph, params: Optional[SAParams] = None):
+    # Not: UI seed=... gönderebilir. Biz kabul ediyoruz.
+    def __init__(self, graph: nx.Graph, params: Optional[SAParams] = None, seed: Optional[int] = None, **kwargs):
         self.graph = graph
-        self.params = params or SAParams()
+        self.params = params if params is not None else SAParams(seed=seed)
 
-        # aynı sonuçları tekrar üretebilmek için seed
         if self.params.seed is not None:
             random.seed(self.params.seed)
 
         self.metrics_service = MetricsService(graph)
 
-        # UI / analiz için history
         self.fitness_history: List[float] = []
         self.temperature_history: List[float] = []
         self.acceptance_history: List[bool] = []
 
     # =========================
-    # 4) optimize(): SA ana döngüsü
+    # 3.1) UI callback uyumu
     # =========================
-    # Adımlar:
-    # 1) ağırlıkları normalize et
-    # 2) initial solution üret (olmazsa shortest path fallback)
-    # 3) sıcaklığı T ile döngüye gir: komşu üret, kabul et/etme, best güncelle
-    # 4) T *= cooling_rate
+    # Bazı UI'lar: on_progress(iteration, fitness)
+    # Bazıları: on_progress(dict)
+    def _emit_progress(
+        self,
+        progress_callback,
+        iteration: int,
+        temperature: float,
+        best_fitness: float,
+        current_fitness: float,
+        accepted: bool,
+        note: str = "",
+    ) -> None:
+        if not progress_callback:
+            return
+
+        # 1) En yaygın imza: (iteration, fitness)
+        try:
+            progress_callback(iteration, best_fitness)
+            return
+        except TypeError:
+            pass
+
+        # 2) Fallback: dict
+        try:
+            progress_callback({
+                "iteration": iteration,
+                "temperature": temperature,
+                "best_fitness": best_fitness,
+                "current_fitness": current_fitness,
+                "accepted": accepted,
+                "note": note,
+            })
+        except TypeError:
+            return
+
+    def _maybe_yield_ui(self) -> None:
+        # PyQt import etmeden küçük sleep ile UI/OS'a nefes veriyoruz
+        ms = float(getattr(self.params, "ui_yield_ms", 0.0) or 0.0)
+        if ms > 0:
+            time.sleep(ms / 1000.0)
+
+    # =========================
+    # 4) optimize(): SA ana döngü
+    # =========================
     def optimize(
         self,
         source: int,
         destination: int,
         weights: Optional[Dict[str, float]] = None,
+        progress_callback: Optional[Callable[..., None]] = None,
+        **kwargs
     ) -> SAResult:
         start_time = time.perf_counter()
 
@@ -116,10 +151,9 @@ class SimulatedAnnealing:
         self.temperature_history.clear()
         self.acceptance_history.clear()
 
-        # (4.1) başlangıç yolu
         current_path = self._initial_solution(source, destination)
 
-        # (4.2) random walk başarısızsa fallback
+        # fallback: shortest path
         if not current_path:
             try:
                 current_path = nx.shortest_path(self.graph, source, destination)
@@ -135,7 +169,6 @@ class SimulatedAnnealing:
 
         current_fit = self._fitness(current_path, weights)
 
-        # en iyi çözüm (best) takibi
         best_path = current_path[:]
         best_fit = current_fit
         best_iter = 0
@@ -143,31 +176,33 @@ class SimulatedAnnealing:
         T = float(self.params.initial_temperature)
         it = 0
 
-        # (4.3) sıcaklık döngüsü
+        progress_every = max(int(getattr(self.params, "progress_every", 25) or 25), 1)
+
         while T > self.params.final_temperature:
             for _ in range(self.params.iterations_per_temp):
-                # toplam iterasyon sınırı (opsiyonel)
                 if self.params.max_total_iterations is not None and it >= self.params.max_total_iterations:
                     T = self.params.final_temperature
                     break
 
-                # komşu çözüm üret
                 cand_path = self._neighbor(current_path, source, destination)
 
-                # komşu yoksa ilerle
                 if not cand_path:
                     self.fitness_history.append(best_fit)
                     self.temperature_history.append(T)
                     self.acceptance_history.append(False)
+
+                    # throttle progress
+                    if progress_callback and (it % progress_every == 0):
+                        self._emit_progress(progress_callback, it, T, best_fit, current_fit, False, note="no_neighbor")
+                        self._maybe_yield_ui()
+
                     it += 1
                     continue
 
                 cand_fit = self._fitness(cand_path, weights)
                 delta = cand_fit - current_fit
 
-                # (4.4) kabul kuralı:
-                # - daha iyi ise (delta<0) kesin kabul
-                # - daha kötü ise exp(-delta/T) olasılığıyla kabul
+                # kabul kuralı
                 if delta < 0:
                     accept = True
                 else:
@@ -180,28 +215,28 @@ class SimulatedAnnealing:
 
                 self.acceptance_history.append(accept)
 
-                # kabul edildiyse current güncelle
                 if accept:
                     current_path = cand_path
                     current_fit = cand_fit
 
-                    # best güncelle
                     if current_fit < best_fit:
                         best_fit = current_fit
                         best_path = current_path[:]
                         best_iter = it
 
-                # history kaydı
                 self.fitness_history.append(best_fit)
                 self.temperature_history.append(T)
 
+                # throttle progress
+                if progress_callback and (it % progress_every == 0):
+                    self._emit_progress(progress_callback, it, T, best_fit, current_fit, accept)
+                    self._maybe_yield_ui()
+
                 it += 1
 
-            # sıcaklığı düşür (cooling)
             T *= float(self.params.cooling_rate)
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
-
         return SAResult(
             path=best_path,
             fitness=best_fit,
@@ -211,12 +246,11 @@ class SimulatedAnnealing:
         )
 
     # =========================
-    # 5) İstatistik (UI için)
+    # 5) Stats
     # =========================
     def get_stats(self) -> Dict[str, Any]:
         if not self.acceptance_history:
             return {"iterations": 0}
-
         return {
             "iterations": len(self.fitness_history),
             "acceptance_rate": sum(self.acceptance_history) / len(self.acceptance_history),
@@ -226,39 +260,29 @@ class SimulatedAnnealing:
         }
 
     # =========================
-    # 6) Ağırlık Normalize
+    # 6) Yardımcılar
     # =========================
     def _normalize_weights(self, weights: Dict[str, float]) -> Dict[str, float]:
         d = float(weights.get("delay", 0.0))
         r = float(weights.get("reliability", 0.0))
         c = float(weights.get("resource", 0.0))
-
         s = d + r + c
         if s <= 0:
             return {"delay": 0.33, "reliability": 0.33, "resource": 0.34}
-
         return {"delay": d / s, "reliability": r / s, "resource": c / s}
 
-    # =========================
-    # 7) Yol Geçerliliği
-    # =========================
-    # - tekrar eden düğüm yok (loop engeli)
-    # - her ardışık düğüm arasında edge olmalı
     def _is_valid_path(self, path: List[int]) -> bool:
         if not path or len(path) < 2:
             return False
-
         if len(path) != len(set(path)):
             return False
-
         for u, v in zip(path[:-1], path[1:]):
             if not self.graph.has_edge(u, v):
                 return False
-
         return True
 
     # =========================
-    # 8) Başlangıç Çözümü (Random Walk)
+    # 7) Başlangıç Çözümü
     # =========================
     def _initial_solution(self, s: int, t: int) -> Optional[List[int]]:
         if s == t:
@@ -289,12 +313,8 @@ class SimulatedAnnealing:
         return path if (path[-1] == t and self._is_valid_path(path)) else None
 
     # =========================
-    # 9) Komşu Üretimi (Neighbor)
+    # 8) Neighbor Üretimi
     # =========================
-    # 3 operatör:
-    # - swap: iç düğümü değiştir
-    # - segment: bir parçayı yeniden kur
-    # - shortcut: gereksiz ara düğümleri kaldır
     def _neighbor(self, path: List[int], s: int, t: int) -> Optional[List[int]]:
         if len(path) <= 2:
             return self._initial_solution(s, t)
@@ -310,9 +330,6 @@ class SimulatedAnnealing:
 
         return cand if (cand and self._is_valid_path(cand)) else None
 
-    # =========================
-    # 9.1) Swap Neighbor
-    # =========================
     def _neighbor_swap(self, path: List[int]) -> Optional[List[int]]:
         if len(path) <= 3:
             return None
@@ -329,14 +346,10 @@ class SimulatedAnnealing:
         if not candidates:
             return None
 
-        new_node = random.choice(list(candidates))
         new_path = path[:]
-        new_path[idx] = new_node
+        new_path[idx] = random.choice(list(candidates))
         return new_path
 
-    # =========================
-    # 9.2) Segment Neighbor
-    # =========================
     def _neighbor_segment(self, path: List[int], s: int, t: int) -> Optional[List[int]]:
         if len(path) <= 4:
             return self._initial_solution(s, t)
@@ -347,7 +360,6 @@ class SimulatedAnnealing:
         start_node = path[i]
         end_node = path[j]
 
-        # segment dışında kalan düğümler yasak (loop riskini azaltır)
         forbidden = set(path) - set(path[i : j + 1])
 
         segment = self._find_segment(start_node, end_node, forbidden)
@@ -356,9 +368,6 @@ class SimulatedAnnealing:
 
         return path[:i] + segment + path[j + 1 :]
 
-    # =========================
-    # 9.3) Shortcut Neighbor
-    # =========================
     def _neighbor_shortcut(self, path: List[int]) -> Optional[List[int]]:
         if len(path) <= 3:
             return None
@@ -374,7 +383,7 @@ class SimulatedAnnealing:
         return None
 
     # =========================
-    # 10) Segment Bulma (Random Walk)
+    # 9) Segment Bulma
     # =========================
     def _find_segment(self, start: int, end: int, forbidden: set) -> Optional[List[int]]:
         if start == end:
@@ -404,7 +413,7 @@ class SimulatedAnnealing:
         return seg_path if seg_path[-1] == end else None
 
     # =========================
-    # 11) Fitness (Weighted Cost)
+    # 10) Fitness
     # =========================
     def _fitness(self, path: List[int], weights: Dict[str, float]) -> float:
         if not self._is_valid_path(path):

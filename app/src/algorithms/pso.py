@@ -91,6 +91,10 @@ class ParticleSwarmOptimization:
         max_initial_steps: int = 150,
         max_segment_steps: int = 40,
         max_velocity: int = 4,
+        # UI dostu ayarlar
+        progress_every: int = 5,   # kaç iterasyonda bir callback
+        ui_yield_ms: float = 1.0,  # küçük bekleme (ms)
+        **kwargs
     ):
         self.graph = graph
         self.n_particles = int(n_particles)
@@ -105,25 +109,59 @@ class ParticleSwarmOptimization:
         self.max_segment_steps = int(max_segment_steps)
         self.max_velocity = int(max_velocity)
 
+        # UI throttle
+        self.progress_every = max(int(progress_every), 1)
+        self.ui_yield_ms = float(ui_yield_ms)
+
         if seed is not None:
             random.seed(seed)
 
         self.metrics_service = MetricsService(graph)
 
-        # yakınsama takibi (grafik/rapor için)
         self.gbest_history: List[float] = []
         self.avg_fitness_history: List[float] = []
 
+    # =========================
+    # UI callback uyumu
+    # =========================
+    # Bazı UI'lar: on_progress(iteration, fitness)
+    # Bazıları: on_progress(dict)
+    def _emit_progress(self, progress_callback, iteration: int, best_fitness: float, avg_fitness: float) -> None:
+        if not progress_callback:
+            return
+
+        # 1) En yaygın: (iteration, fitness)
+        try:
+            progress_callback(iteration, best_fitness)
+            return
+        except TypeError:
+            pass
+
+        # 2) Fallback: dict
+        try:
+            progress_callback({
+                "iteration": iteration,
+                "best_fitness": best_fitness,
+                "avg_fitness": avg_fitness,
+            })
+        except TypeError:
+            return
+
+    def _maybe_yield_ui(self) -> None:
+        if self.ui_yield_ms and self.ui_yield_ms > 0:
+            time.sleep(self.ui_yield_ms / 1000.0)
 
     # =========================
-    # 4) OPTIMIZE (Ana döngü)
+    # OPTIMIZE (Ana döngü)
     # =========================
-    # Akış:
-    # 1) ağırlıkları normalize et
-    # 2) swarm'ı başlat (rastgele yollar)
-    # 3) gbest'i seç
-    # 4) her iterasyonda: velocity->position->pbest/gbest update
-    def optimize(self, source: int, destination: int, weights: Dict[str, float] = None) -> PSOResult:
+    def optimize(
+        self,
+        source: int,
+        destination: int,
+        weights: Dict[str, float] = None,
+        progress_callback=None,   # ✅ UI bunu gönderiyor
+        **kwargs                  # ✅ başka ekstra argüman gelirse patlamasın
+    ) -> PSOResult:
         start_time = time.perf_counter()
 
         weights = weights or {"delay": 0.33, "reliability": 0.33, "resource": 0.34}
@@ -132,10 +170,9 @@ class ParticleSwarmOptimization:
         self.gbest_history.clear()
         self.avg_fitness_history.clear()
 
-        # (4.1) başlangıç parçacıkları
         particles = self._initialize_particles(source, destination, weights)
 
-        # (4.2) hiç yol üretemezse fallback: shortest path
+        # fallback
         if not particles:
             try:
                 fallback = nx.shortest_path(self.graph, source, destination)
@@ -147,21 +184,18 @@ class ParticleSwarmOptimization:
             elapsed_ms = (time.perf_counter() - start_time) * 1000
             return PSOResult(path=fallback, fitness=f, iteration=0, computation_time_ms=elapsed_ms)
 
-        # (4.3) gbest başlangıcı
+        # gbest init
         gbest_particle = min(particles, key=lambda p: p.fitness)
         gbest_path = gbest_particle.path[:]
         gbest_fitness = gbest_particle.fitness
         best_iteration = 0
 
-        # (4.4) PSO iterasyonları
+        # iterasyonlar
         for iteration in range(self.n_iterations):
             valid_fitness_vals = []
 
             for particle in particles:
-                # (A) velocity güncelle (pbest + gbest + keşif)
                 self._update_velocity(particle, gbest_path)
-
-                # (B) position güncelle (swap / reroute / shortcut)
                 new_path = self._update_position(particle, source, destination)
 
                 if new_path:
@@ -171,12 +205,10 @@ class ParticleSwarmOptimization:
                     particle.path = new_path
                     particle.fitness = new_fitness
 
-                    # pbest update
                     if new_fitness < particle.pbest_fitness:
                         particle.pbest_path = new_path[:]
                         particle.pbest_fitness = new_fitness
 
-                    # gbest update
                     if new_fitness < gbest_fitness:
                         gbest_path = new_path[:]
                         gbest_fitness = new_fitness
@@ -185,14 +217,19 @@ class ParticleSwarmOptimization:
                 if particle.fitness != float("inf"):
                     valid_fitness_vals.append(particle.fitness)
 
-            # yakınsama kaydı
+            # history
             self.gbest_history.append(gbest_fitness)
-            self.avg_fitness_history.append(
-                sum(valid_fitness_vals) / len(valid_fitness_vals) if valid_fitness_vals else float("inf")
-            )
+            avg_fit = (sum(valid_fitness_vals) / len(valid_fitness_vals)) if valid_fitness_vals else float("inf")
+            self.avg_fitness_history.append(avg_fit)
+
+            # ✅ UI callback (throttle)
+            if progress_callback and (iteration % self.progress_every == 0):
+                self._emit_progress(progress_callback, iteration, gbest_fitness, avg_fit)
+                self._maybe_yield_ui()
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         return PSOResult(path=gbest_path, fitness=gbest_fitness, iteration=best_iteration, computation_time_ms=elapsed_ms)
+
 
 
     # =========================

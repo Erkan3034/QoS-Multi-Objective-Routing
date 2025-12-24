@@ -497,6 +497,8 @@ class ExperimentsPanel(QWidget):
     Deney paneli widget'ı.
     """
     run_experiments_requested = pyqtSignal(int, int)
+    run_scalability_requested = pyqtSignal(list)
+    load_scenarios_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -544,10 +546,12 @@ class ExperimentsPanel(QWidget):
         
         # 2. Scalability Analysis (Collapsible Card)
         self.scale_card = ScalabilityAnalysisCard()
+        self.scale_card.run_requested.connect(self.run_scalability_requested.emit)
         layout.addWidget(self.scale_card)
         
         # 3. Test Scenarios (Collapsible Card)
         self.scenarios_card = TestScenariosCard()
+        self.scenarios_card.load_requested.connect(self.load_scenarios_requested.emit)
         layout.addWidget(self.scenarios_card)
         
         # === REQUIREMENTS BOX ===

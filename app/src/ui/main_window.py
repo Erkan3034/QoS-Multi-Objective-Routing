@@ -29,6 +29,8 @@ from src.ui.components.legend_widget import LegendWidget
 from src.ui.components.path_info_widget import PathInfoWidget
 from src.ui.components.test_results_dialog import TestResultsDialog
 from src.ui.components.convergence_widget import ConvergenceWidget
+from src.ui.components.scalability_dialog import ScalabilityDialog
+from src.ui.components.scenarios_dialog import ScenariosDialog
 
 from src.services.graph_service import GraphService
 from src.services.metrics_service import MetricsService
@@ -208,6 +210,58 @@ class ExperimentsWorker(QThread):
             import traceback
             error_msg = f"Deney hatası: {str(e)}\n{traceback.format_exc()}"
             self.error.emit(error_msg)
+
+class ScalabilityWorker(QThread):
+    """Ölçeklenebilirlik analizi thread'i."""
+    
+    finished = pyqtSignal(list)
+    progress = pyqtSignal(int, int, str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, node_counts):
+        super().__init__()
+        self.node_counts = node_counts
+        
+    def run(self):
+        results = []
+        try:
+            from src.services.graph_service import GraphService
+            from src.experiments.experiment_runner import ExperimentRunner
+            from src.experiments.test_cases import TestCaseGenerator
+            
+            total_steps = len(self.node_counts)
+            
+            for i, n_nodes in enumerate(self.node_counts):
+                self.progress.emit(i+1, total_steps, f"{n_nodes} düğüm analiz ediliyor...")
+                
+                # Rastgele graf oluştur
+                service = GraphService(seed=None) 
+                graph = service.generate_graph(n_nodes=n_nodes, p=0.15)
+                
+                # Test case üret (10 tane yeterli)
+                generator = TestCaseGenerator(graph)
+                test_cases = generator.generate_test_cases(n_cases=10)
+                
+                # Deneyleri çalıştır (3 tekrar)
+                runner = ExperimentRunner(graph, n_repeats=3)
+                res = runner.run_experiments(test_cases)
+                
+                # Sonuçları işle
+                comp_table = res['comparison_table']
+                row = {'nodes': n_nodes}
+                for item in comp_table:
+                    alg = item['algorithm']
+                    row[alg] = {
+                        'cost': item['overall_avg_cost'],
+                        'time': item['overall_avg_time_ms']
+                    }
+                results.append(row)
+                
+            self.finished.emit(results)
+            
+        except Exception as e:
+            import traceback
+            self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
 
 class MainWindow(QMainWindow):
     """Ana uygulama penceresi."""
@@ -411,6 +465,8 @@ class MainWindow(QMainWindow):
         
         # Experiments panel
         self.experiments_panel.run_experiments_requested.connect(self._on_run_experiments)
+        self.experiments_panel.run_scalability_requested.connect(self._on_run_scalability_analysis)
+        self.experiments_panel.load_scenarios_requested.connect(self._on_load_test_scenarios)
         
         # Graph widget
         self.graph_widget.node_clicked.connect(self._on_node_clicked)
@@ -740,3 +796,38 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Uyarı", "Önce graf oluşturun!")
             return False
         return True
+
+    def _on_run_scalability_analysis(self, node_counts: List[int]):
+        """Ölçeklenebilirlik analizini başlat."""
+        self.experiments_panel.set_loading(True)
+        self.status_bar.showMessage("Ölçeklenebilirlik analizi hazırlanıyor...", 3000)
+        
+        self.current_worker = ScalabilityWorker(node_counts)
+        self.current_worker.progress.connect(self._on_scalability_progress)
+        self.current_worker.finished.connect(self._on_scalability_finished)
+        self.current_worker.error.connect(self._on_experiment_error)
+        self.current_worker.start()
+        
+    def _on_scalability_progress(self, current, total, msg):
+        self.status_bar.showMessage(f"Analiz: {current}/{total} - {msg}")
+        
+    def _on_scalability_finished(self, results):
+        self.experiments_panel.set_loading(False)
+        self.status_bar.showMessage("Analiz tamamlandı!", 5000)
+        
+        dialog = ScalabilityDialog(results, self)
+        dialog.exec_()
+
+    def _on_load_test_scenarios(self):
+        """Test senaryolarını yükle ve göster."""
+        if not self._check_graph():
+            QMessageBox.warning(self, "Uyarı", "Önce bir graf yükleyin veya oluşturun!")
+            return
+            
+        from src.experiments.test_cases import TestCaseGenerator
+        
+        generator = TestCaseGenerator(self.graph_service.graph)
+        scenarios = generator.get_predefined_test_cases()
+        
+        dialog = ScenariosDialog(scenarios, self)
+        dialog.exec_()

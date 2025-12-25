@@ -1,5 +1,5 @@
 """
-Uygulama Konfigürasyonu - PyQt5 Desktop Version
+Uygulama Konfigürasyonu
 """
 from typing import List
 from pydantic_settings import BaseSettings

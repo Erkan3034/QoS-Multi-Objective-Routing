@@ -565,13 +565,18 @@ class MainWindow(QMainWindow):
         """Talep çifti seçildiğinde."""
         self.graph_widget.set_source_destination(source, dest)
             
-    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict):
+    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0):
         if not self._check_graph(): return
         if source == dest:
             QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
             return
             
         self.control_panel.set_loading(True)
+        
+        # [UX] Clear previous results immediately to indicate new process started
+        self.graph_widget.set_path([])
+        self.results_panel.clear()
+        
         self.graph_widget.set_source_destination(source, dest)
         
         # [LIVE CONVERGENCE PLOT] Use generic OptimizationWorker for ALL algorithms
@@ -598,7 +603,8 @@ class MainWindow(QMainWindow):
             graph=self.graph_service.graph,
             source=source,
             dest=dest,
-            weights=weights
+            weights=weights,
+            bandwidth_demand=bandwidth_demand
         )
         
         # Connect progress signal to convergence widget (works for all algorithms now)
@@ -757,10 +763,23 @@ class MainWindow(QMainWindow):
         weights = self.control_panel._get_weights()
         algorithm = self.control_panel._get_algorithm_key()
         
+        # Get demand if available (replicate logic from _on_optimize_clicked)
+        # We access private _demands here, assuming standard use
+        demand = 0.0
+        try:
+            if self.control_panel.combo_demands.isVisible():
+                idx = self.control_panel.combo_demands.currentIndex()
+                if idx >= 0:
+                     d_src, d_dst, d_val = self.control_panel._demands[idx]
+                     if d_src == source and d_dst == dest:
+                         demand = float(d_val)
+        except Exception:
+            pass # Fail safe
+        
         if algorithm and weights:
             self.status_bar.showMessage(f"🔴 Link {u}-{v} kırıldı! Yeni yol hesaplanıyor...", 3000)
             # Trigger optimization
-            self._on_optimize(algorithm, source, dest, weights)
+            self._on_optimize(algorithm, source, dest, weights, demand)
         else:
             self.status_bar.showMessage(f"🔴 Link {u}-{v} kırıldı! Yeni yol hesaplamak için optimize edin.", 5000)
             

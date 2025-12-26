@@ -33,7 +33,8 @@ class OptimizationWorker(QThread):
         graph: nx.Graph,
         source: int,
         dest: int,
-        weights: Dict
+        weights: Dict,
+        bandwidth_demand: float = 0.0
     ):
         """
         Initialize generic optimization worker.
@@ -45,6 +46,7 @@ class OptimizationWorker(QThread):
             source: Source node ID
             dest: Destination node ID
             weights: Metric weights dictionary
+            bandwidth_demand: Bandwidth demand in Mbps
         """
         super().__init__()
         self.algorithm_instance = algorithm_instance
@@ -53,6 +55,7 @@ class OptimizationWorker(QThread):
         self.source = source
         self.dest = dest
         self.weights = weights
+        self.bandwidth_demand = bandwidth_demand
     
     def run(self):
         """
@@ -74,6 +77,7 @@ class OptimizationWorker(QThread):
                 source=self.source,
                 destination=self.dest,
                 weights=self.weights,
+                bandwidth_demand=self.bandwidth_demand,
                 progress_callback=on_progress
             )
             
@@ -86,6 +90,10 @@ class OptimizationWorker(QThread):
                 self.weights['resource']
             )
             
+            # Check if bandwidth demand is met, if not set weighted_cost to inf
+            if self.bandwidth_demand > 0 and metrics.min_bandwidth < self.bandwidth_demand:
+                metrics.weighted_cost = float('inf')
+            
             # Create OptimizationResult
             opt_result = OptimizationResult(
                 algorithm=self.algorithm_name,
@@ -94,7 +102,8 @@ class OptimizationWorker(QThread):
                 total_reliability=metrics.total_reliability,
                 resource_cost=metrics.resource_cost,
                 weighted_cost=metrics.weighted_cost,
-                computation_time_ms=result.computation_time_ms
+                computation_time_ms=result.computation_time_ms,
+                min_bandwidth=metrics.min_bandwidth
             )
             
             self.finished.emit(opt_result)

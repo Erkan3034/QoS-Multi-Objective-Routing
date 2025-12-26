@@ -12,6 +12,7 @@ yol optimizasyonu sağlar.
 """
 import random
 import time
+import os
 import math
 import networkx as nx
 from typing import List, Dict, Any, Optional, Tuple
@@ -112,7 +113,8 @@ class QLearning:
         self,
         source: int,
         destination: int,
-        weights: Dict[str, float] = None
+        weights: Dict[str, float] = None,
+        bandwidth_demand: float = 0.0
     ) -> QLResult:
         """
         Optimal yolu bul.
@@ -121,6 +123,7 @@ class QLearning:
             source: Kaynak düğüm ID
             destination: Hedef düğüm ID
             weights: Metrik ağırlıkları {'delay', 'reliability', 'resource'}
+            bandwidth_demand: İstenen bant genişliği (Mbps)
         
         Returns:
             QLResult objesi
@@ -133,6 +136,12 @@ class QLearning:
             'resource': 0.34
         }
         
+        # [FIX] Reset random state if no seed was set to ensure stochastic behavior
+        if not hasattr(self, '_seed') or self._seed is None:
+            import time as time_module
+            import os
+            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
+        
         # Q-table'ı sıfırla
         self.q_table = defaultdict(lambda: defaultdict(float))
         self.reward_history = []
@@ -142,7 +151,7 @@ class QLearning:
         
         # Eğitim döngüsü
         for episode in range(self.episodes):
-            episode_reward = self._run_episode(source, destination, weights, epsilon)
+            episode_reward = self._run_episode(source, destination, weights, epsilon, bandwidth_demand)
             self.reward_history.append(episode_reward)
             self.epsilon_history.append(epsilon)
             
@@ -150,19 +159,28 @@ class QLearning:
             epsilon = max(self.epsilon_end, epsilon * self.epsilon_decay)
         
         # En iyi yolu çıkar
-        best_path = self._extract_best_path(source, destination)
+        best_path = self._extract_best_path(source, destination, bandwidth_demand)
         
         if not best_path:
             # Fallback: Shortest path kullan
             try:
-                best_path = nx.shortest_path(self.graph, source, destination)
+                # [FIX] Fallback respects bandwidth
+                if bandwidth_demand > 0:
+                    valid_edges = [
+                        (u, v) for u, v, d in self.graph.edges(data=True) 
+                        if d.get('bandwidth', 1000) >= bandwidth_demand
+                    ]
+                    temp_graph = self.graph.edge_subgraph(valid_edges)
+                    best_path = nx.shortest_path(temp_graph, source, destination)
+                else:
+                    best_path = nx.shortest_path(self.graph, source, destination)
             except nx.NetworkXNoPath:
                 best_path = [source, destination]
         
         # Toplam ödülü hesapla
         try:
             total_reward = 1000 / self.metrics_service.calculate_weighted_cost(
-                best_path, weights['delay'], weights['reliability'], weights['resource']
+                best_path, weights['delay'], weights['reliability'], weights['resource'], bandwidth_demand
             )
         except Exception:
             total_reward = 0
@@ -182,7 +200,8 @@ class QLearning:
         source: int,
         destination: int,
         weights: Dict[str, float],
-        epsilon: float
+        epsilon: float,
+        bandwidth_demand: float = 0.0
     ) -> float:
         """
         Tek bir eğitim episode'u çalıştırır.
@@ -199,7 +218,7 @@ class QLearning:
         
         while state != destination and step < max_steps:
             # Action seç (ε-greedy)
-            action = self._choose_action(state, visited, epsilon)
+            action = self._choose_action(state, visited, epsilon, bandwidth_demand)
             
             if action is None:
                 # Dead end
@@ -216,7 +235,7 @@ class QLearning:
                 # Hedefe ulaşıldı - yol maliyetine göre ödül
                 try:
                     cost = self.metrics_service.calculate_weighted_cost(
-                        path, weights['delay'], weights['reliability'], weights['resource']
+                        path, weights['delay'], weights['reliability'], weights['resource'], bandwidth_demand
                     )
                     reward = 1000 / cost  # Düşük maliyet = yüksek ödül
                 except Exception:
@@ -242,7 +261,8 @@ class QLearning:
         self,
         state: int,
         visited: set,
-        epsilon: float
+        epsilon: float,
+        bandwidth_demand: float = 0.0
     ) -> Optional[int]:
         """
         ε-greedy politika ile action seçer.
@@ -251,18 +271,24 @@ class QLearning:
             Seçilen komşu düğüm veya None
         """
         # Ziyaret edilmemiş komşuları al
-        neighbors = [n for n in self.graph.neighbors(state) if n not in visited]
+        neighbors = list(self.graph.neighbors(state))
         
-        if not neighbors:
+        # Filter by bandwidth
+        if bandwidth_demand > 0:
+            candidates = [n for n in neighbors if n not in visited and self.graph[state][n].get('bandwidth', 1000) >= bandwidth_demand]
+        else:
+            candidates = [n for n in neighbors if n not in visited]
+        
+        if not candidates:
             return None
         
         # ε-greedy seçim
         if random.random() < epsilon:
             # Rastgele keşif
-            return random.choice(neighbors)
+            return random.choice(candidates)
         else:
             # En iyi Q-değerine sahip action
-            q_values = [(n, self.q_table[state][n]) for n in neighbors]
+            q_values = [(n, self.q_table[state][n]) for n in candidates]
             q_values.sort(key=lambda x: x[1], reverse=True)
             return q_values[0][0]
     
@@ -320,7 +346,8 @@ class QLearning:
     def _extract_best_path(
         self,
         source: int,
-        destination: int
+        destination: int,
+        bandwidth_demand: float = 0.0
     ) -> Optional[List[int]]:
         """
         Öğrenilen politikadan en iyi yolu çıkarır.
@@ -334,13 +361,19 @@ class QLearning:
         
         while state != destination and len(path) < max_steps:
             # En iyi action'ı seç
-            neighbors = [n for n in self.graph.neighbors(state) if n not in visited]
+            neighbors = list(self.graph.neighbors(state))
             
-            if not neighbors:
+            # Filter by bandwidth
+            if bandwidth_demand > 0:
+                candidates = [n for n in neighbors if n not in visited and self.graph[state][n].get('bandwidth', 1000) >= bandwidth_demand]
+            else:
+                candidates = [n for n in neighbors if n not in visited]
+            
+            if not candidates:
                 return None
             
             # Q değerlerine göre sırala
-            q_values = [(n, self.q_table[state][n]) for n in neighbors]
+            q_values = [(n, self.q_table[state][n]) for n in candidates]
             q_values.sort(key=lambda x: x[1], reverse=True)
             
             next_state = q_values[0][0]
@@ -366,4 +399,5 @@ class QLearning:
             "min_q": min(all_q_values),
             "avg_q": sum(all_q_values) / len(all_q_values)
         }
+
 

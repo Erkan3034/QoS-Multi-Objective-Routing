@@ -18,6 +18,7 @@ ayrık grafik tabanlı routing problemlerine uygun hale getirir.
 
 import random
 import time
+import os
 import networkx as nx
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
@@ -154,11 +155,15 @@ class ParticleSwarmOptimization:
     # =========================
     # OPTIMIZE (Ana döngü)
     # =========================
+    # =========================
+    # OPTIMIZE (Ana döngü)
+    # =========================
     def optimize(
         self,
         source: int,
         destination: int,
         weights: Dict[str, float] = None,
+        bandwidth_demand: float = 0.0,
         progress_callback=None,   # ✅ UI bunu gönderiyor
         **kwargs                  # ✅ başka ekstra argüman gelirse patlamasın
     ) -> PSOResult:
@@ -167,16 +172,30 @@ class ParticleSwarmOptimization:
         weights = weights or {"delay": 0.33, "reliability": 0.33, "resource": 0.34}
         weights = self._normalize_weights(weights)
 
+        # [FIX] Reset random state if no seed was set to ensure stochastic behavior
+        if not hasattr(self, '_seed') or self._seed is None:
+            import time as time_module
+            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
+
         self.gbest_history.clear()
         self.avg_fitness_history.clear()
 
-        particles = self._initialize_particles(source, destination, weights)
+        particles = self._initialize_particles(source, destination, weights, bandwidth_demand)
 
         # fallback
         if not particles:
             try:
-                fallback = nx.shortest_path(self.graph, source, destination)
-                f = self._calculate_fitness(fallback, weights)
+                # [FIX] Fallback respects bandwidth
+                if bandwidth_demand > 0:
+                    valid_edges = [
+                        (u, v) for u, v, d in self.graph.edges(data=True) 
+                        if d.get('bandwidth', 1000) >= bandwidth_demand
+                    ]
+                    temp_graph = self.graph.edge_subgraph(valid_edges)
+                    fallback = nx.shortest_path(temp_graph, source, destination)
+                else:
+                    fallback = nx.shortest_path(self.graph, source, destination)
+                f = self._calculate_fitness(fallback, weights, bandwidth_demand)
             except Exception:
                 fallback = [source, destination]
                 f = float("inf")
@@ -200,7 +219,8 @@ class ParticleSwarmOptimization:
 
                 if new_path:
                     new_path = self._trim_path(new_path)
-                    new_fitness = self._calculate_fitness(new_path, weights)
+                    # Pass bandwidth_demand to fitness
+                    new_fitness = self._calculate_fitness(new_path, weights, bandwidth_demand)
 
                     particle.path = new_path
                     particle.fitness = new_fitness
@@ -236,15 +256,16 @@ class ParticleSwarmOptimization:
     # 5) INITIALIZATION
     # =========================
     # Amaç: her particle için geçerli bir başlangıç yolu üretmek (random walk)
-    def _initialize_particles(self, source: int, destination: int, weights: Dict[str, float]) -> List[Particle]:
+    def _initialize_particles(self, source: int, destination: int, weights: Dict[str, float], bw_demand: float = 0.0) -> List[Particle]:
         particles: List[Particle] = []
         attempts = self.n_particles * 4  # zor graph için daha çok deneme
 
         while len(particles) < self.n_particles and attempts > 0:
             attempts -= 1
-            path = self._generate_random_path(source, destination, max_length=self.max_path_len)
+            # Pass bw_demand to generator
+            path = self._generate_random_path(source, destination, max_length=self.max_path_len, bw_demand=bw_demand)
             if path:
-                fit = self._calculate_fitness(path, weights)
+                fit = self._calculate_fitness(path, weights, bw_demand)
                 particles.append(Particle(path, fit))
 
         return particles
@@ -252,7 +273,7 @@ class ParticleSwarmOptimization:
     # Random walk:
     # - unvisited komşuları tercih eder (loop azalsın)
     # - tıkanırsa birkaç kez restart dener
-    def _generate_random_path(self, source: int, destination: int, max_length: int = 60) -> Optional[List[int]]:
+    def _generate_random_path(self, source: int, destination: int, max_length: int = 60, bw_demand: float = 0.0) -> Optional[List[int]]:
         if source == destination:
             return [source]
 
@@ -266,7 +287,14 @@ class ParticleSwarmOptimization:
                     break
 
                 neighbors = list(self.graph.neighbors(cur))
-                candidates = [n for n in neighbors if n not in visited] or neighbors
+                
+                # Filter by bandwidth if demand > 0
+                if bw_demand > 0:
+                     valid_neighbors = [n for n in neighbors if self.graph[cur][n].get('bandwidth', 1000) >= bw_demand]
+                else:
+                     valid_neighbors = neighbors
+                     
+                candidates = [n for n in valid_neighbors if n not in visited] or valid_neighbors
                 if not candidates:
                     break
 
@@ -372,6 +400,8 @@ class ParticleSwarmOptimization:
             return new_path
 
         # geçersizse 1 kez random fallback
+        # NOTE: Position update doesn't strictly check BW here, but fitness will kill it.
+        # Fallback should respect BW? Let's leave it simple as fitness check handles it.
         return self._generate_random_path(source, destination, max_length=self.max_path_len)
 
 
@@ -418,13 +448,14 @@ class ParticleSwarmOptimization:
         return True
 
     # fitness = MetricsService ağırlıklı maliyeti (küçük daha iyi)
-    def _calculate_fitness(self, path: List[int], weights: Dict[str, float]) -> float:
+    def _calculate_fitness(self, path: List[int], weights: Dict[str, float], bandwidth_demand: float = 0.0) -> float:
         try:
             return self.metrics_service.calculate_weighted_cost(
                 path,
                 weights["delay"],
                 weights["reliability"],
                 weights["resource"],
+                bandwidth_demand # Pass demand to service
             )
         except Exception:
             return float("inf")

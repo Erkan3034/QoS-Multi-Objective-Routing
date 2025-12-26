@@ -298,7 +298,7 @@ class GeneticAlgorithm:
             import time as time_module
             random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
         
-        population = self._initialize_population(source, destination)
+        population = self._initialize_population(source, destination, bandwidth_demand)
         
         if not population:
             return GAResult([], float('inf'), 0, (time.perf_counter()-start_time)*1000, success=False)
@@ -444,7 +444,7 @@ class GeneticAlgorithm:
         except nx.NetworkXNoPath:
             return ()
 
-    def _initialize_population(self, source: int, destination: int) -> List[List[int]]:
+    def _initialize_population(self, source: int, destination: int, bandwidth_demand: float = 0.0) -> List[List[int]]:
         """
         [IMPROVED] Daha iyi başlangıç popülasyonu oluşturur.
         
@@ -452,23 +452,39 @@ class GeneticAlgorithm:
         1. Multiple shortest path variations (k-weighted shortest paths)
         2. Fitness-based guided initialization (daha iyi yollar)
         3. Daha fazla çeşitlilik
+        4. [NEW] Bandwidth constraint filtering
         """
         population = []
         seen_paths = set()
         
-        # Baseline: En Kısa Yol
-        sp = self._cached_shortest_path(source, destination)
-        if sp:
-            population.append(list(sp))
-            seen_paths.add(sp)
+        # [FIX] Create a filtered subgraph meeting bandwidth demand for initialization
+        if bandwidth_demand > 0:
+            valid_edges = [
+                (u, v) for u, v, d in self.graph.edges(data=True)
+                if d.get('bandwidth', 0) >= bandwidth_demand
+            ]
+            init_graph = self.graph.edge_subgraph(valid_edges).copy()
         else:
+            init_graph = self.graph
+            
+        # Check connectivity on filtered graph
+        if not nx.has_path(init_graph, source, destination):
             return []
+        
+        # Baseline: En Kısa Yol (on filtered graph)
+        try:
+            sp = nx.shortest_path(init_graph, source, destination, weight='weight') # Default unweighted or 'weight'
+            if sp:
+                population.append(list(sp))
+                seen_paths.add(tuple(sp))
+        except nx.NetworkXNoPath:
+            pass
         
         # [IMPROVEMENT 1] K-weighted shortest paths ekle (çeşitlilik için)
         # Farklı edge weight kombinasyonlarıyla shortest path'ler bul
         try:
             # Delay-based shortest path
-            delay_sp = nx.shortest_path(self.graph, source, destination, weight='delay')
+            delay_sp = nx.shortest_path(init_graph, source, destination, weight='delay')
             if tuple(delay_sp) not in seen_paths:
                 population.append(list(delay_sp))
                 seen_paths.add(tuple(delay_sp))
@@ -478,11 +494,18 @@ class GeneticAlgorithm:
         try:
             # Reliability-based (inverse) shortest path
             # Yüksek reliability'li edge'leri tercih et
-            reliability_graph = self.graph.copy()
-            for u, v in reliability_graph.edges():
-                rel = reliability_graph[u][v].get('reliability', 0.99)
-                reliability_graph[u][v]['weight'] = 1.0 / (rel + 0.01)  # Inverse
-            rel_sp = nx.shortest_path(reliability_graph, source, destination, weight='weight')
+            # Note: We need to modify weights on the filtered graph copy
+            if bandwidth_demand > 0:
+                 # Already a copy
+                 rel_graph = init_graph 
+            else:
+                 rel_graph = self.graph.copy()
+                 
+            for u, v in rel_graph.edges():
+                rel = rel_graph[u][v].get('reliability', 0.99)
+                rel_graph[u][v]['temp_weight'] = 1.0 / (rel + 0.01)  # Inverse
+                
+            rel_sp = nx.shortest_path(rel_graph, source, destination, weight='temp_weight')
             if tuple(rel_sp) not in seen_paths:
                 population.append(list(rel_sp))
                 seen_paths.add(tuple(rel_sp))
@@ -496,13 +519,15 @@ class GeneticAlgorithm:
         if hasattr(self, 'current_weights') and self.current_weights:
             # Use MetricsService if available, otherwise use internal fitness
             use_metrics_service = (self.use_standard_metrics and self.metrics_service)
-            # Standard metrics kullanılıyorsa, fitness'e göre seç
             candidate_paths = []
-            for _ in range(min(50, self.population_size * 2)):
+            max_candidates = min(50, self.population_size * 2)
+            
+            for _ in range(max_candidates):
                 if random.random() < self.guided_ratio:
-                    path = self._generate_guided_path(source, destination)
+                    path = self._generate_guided_path(source, destination, bandwidth_demand)
                 else:
-                    path = self._generate_random_path(source, destination)
+                    path = self._generate_random_path(source, destination, bandwidth_demand)
+                
                 if path and tuple(path) not in seen_paths:
                     # [FIX] Calculate fitness using current weights (critical for weight changes)
                     if use_metrics_service:
@@ -511,7 +536,8 @@ class GeneticAlgorithm:
                             path,
                             self.current_weights.get('delay', 0.33),
                             self.current_weights.get('reliability', 0.33),
-                            self.current_weights.get('resource', 0.34)
+                            self.current_weights.get('resource', 0.34),
+                            bandwidth_demand # Pass constraint
                         )
                     else:
                         # Use internal fitness worker for normalized metrics
@@ -519,7 +545,7 @@ class GeneticAlgorithm:
                             path, 
                             self.graph, 
                             self.current_weights, 
-                            0.0  # No bandwidth demand for initialization
+                            bandwidth_demand # Pass constraint
                         )
                     candidate_paths.append((fitness, path))
             
@@ -537,9 +563,9 @@ class GeneticAlgorithm:
         
         while len(population) < self.population_size and attempts < max_attempts:
             if random.random() < self.guided_ratio:
-                path = self._generate_guided_path(source, destination)
+                path = self._generate_guided_path(source, destination, bandwidth_demand)
             else:
-                path = self._generate_random_path(source, destination)
+                path = self._generate_random_path(source, destination, bandwidth_demand)
             
             if path:
                 pt = tuple(path)
@@ -548,13 +574,18 @@ class GeneticAlgorithm:
                     seen_paths.add(pt)
             attempts += 1
             
-        # Popülasyon dolmadıysa (küçük ağlarda olur), shortest path ile doldur
-        while len(population) < self.population_size:
-            population.append(list(sp))
+        # Popülasyon dolmadıysa (küçük ağlarda veya kısıtlı ağlarda olur), shortest path ile doldur
+        # Ama sadece geçerli SP varsa.
+        if population:
+            # En az bir yol varsa, çeşitlilik için onu kopyalayabiliriz veya SP'yi tekrar ekleyebiliriz.
+            # En iyi yol (ilk bulunan SP) ile dolduralım.
+            fill_path = population[0]
+            while len(population) < self.population_size:
+                population.append(list(fill_path))
         
         return population
 
-    def _generate_guided_path(self, source: int, destination: int, max_len: int = 50) -> Optional[List[int]]:
+    def _generate_guided_path(self, source: int, destination: int, bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
         """Heuristic Path Generation: Degree Centrality kullanarak 'Hub' düğümlere yönelir."""
         path = [source]
         current = source
@@ -562,7 +593,17 @@ class GeneticAlgorithm:
         
         for _ in range(max_len):
             if current == destination: return path
-            neighbors = [n for n in self._neighbor_cache[current] if n not in visited]
+            
+            # Filter neighbors
+            neighbors = []
+            for n in self._neighbor_cache[current]:
+                if n in visited: continue
+                # Check bandwidth constraint
+                if bandwidth_demand > 0:
+                     bw = self.graph[current][n].get('bandwidth', 0)
+                     if bw < bandwidth_demand: continue
+                neighbors.append(n)
+
             if not neighbors: return None
             
             if destination in neighbors:
@@ -589,15 +630,26 @@ class GeneticAlgorithm:
             current = next_node
         return None
 
-    def _generate_random_path(self, source: int, destination: int, max_len: int = 50) -> Optional[List[int]]:
+    def _generate_random_path(self, source: int, destination: int, bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
         """Saf Rastgele Yürüyüş (Keşif/Exploration için)"""
         path = [source]
         current = source
         visited = {source}
         for _ in range(max_len):
             if current == destination: return path
-            neighbors = [n for n in self._neighbor_cache[current] if n not in visited]
+            
+            # Filter neighbors
+            neighbors = []
+            for n in self._neighbor_cache[current]:
+                if n in visited: continue
+                # Check bandwidth constraint
+                if bandwidth_demand > 0:
+                     bw = self.graph[current][n].get('bandwidth', 0)
+                     if bw < bandwidth_demand: continue
+                neighbors.append(n)
+                
             if not neighbors: return None
+            
             if destination in neighbors:
                 path.append(destination)
                 return path

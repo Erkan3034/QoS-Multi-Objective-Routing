@@ -19,7 +19,7 @@ class ControlPanel(QWidget):
     # Sinyaller
     generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
     load_csv_requested = pyqtSignal()  # CSV yükleme isteği
-    optimize_requested = pyqtSignal(str, int, int, dict)  # algorithm, source, dest, weights
+    optimize_requested = pyqtSignal(str, int, int, dict, float)  # algorithm, source, dest, weights, bandwidth_demand
     compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
     reset_requested = pyqtSignal()
     demand_selected = pyqtSignal(int, int, int)  # source, dest, demand_mbps
@@ -198,39 +198,49 @@ class ControlPanel(QWidget):
         opt_content_layout.setSpacing(8)
         opt_content_layout.setContentsMargins(12, 12, 12, 12)
         
-        # Source & Dest
-        sd_layout = QHBoxLayout()
-        sd_layout.setSpacing(2)
+        # Source & Dest Row
+        sd_container = QWidget()
+        sd_layout = QHBoxLayout(sd_container)
+        sd_layout.setContentsMargins(0, 0, 0, 0)
+        sd_layout.setSpacing(10)
         
-        # Source
-        src_wrapper = QVBoxLayout()
-        src_wrapper.setSpacing(6)
+        # Source Column
+        src_layout = QVBoxLayout()
+        src_layout.setSpacing(4)
         lbl_src = QLabel("Kaynak (S)")
-        lbl_src.setStyleSheet("color: #94a3b8; font-weight: 500;")
-        src_wrapper.addWidget(lbl_src)
+        lbl_src.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 11px;")
+        src_layout.addWidget(lbl_src)
+        
         self.spin_source = QSpinBox()
         self.spin_source.setRange(0, 249)
         self.spin_source.setValue(2)
-        self.spin_source.setFixedHeight(30) 
+        self.spin_source.setFixedHeight(32) 
         self.spin_source.setStyleSheet(self._input_style())
-        src_wrapper.addWidget(self.spin_source)
-        sd_layout.addLayout(src_wrapper)
+        src_layout.addWidget(self.spin_source)
+        sd_layout.addLayout(src_layout)
         
-        # Dest
-        dest_wrapper = QVBoxLayout()
-        dest_wrapper.setSpacing(6)
+        # Swap Icon (Optional, visual only)
+        lbl_arrow = QLabel("→")
+        lbl_arrow.setStyleSheet("color: #64748b; font-size: 20px; font-weight: bold; margin-top: 15px;")
+        lbl_arrow.setAlignment(Qt.AlignCenter)
+        sd_layout.addWidget(lbl_arrow)
+        
+        # Dest Column
+        dest_layout = QVBoxLayout()
+        dest_layout.setSpacing(4)
         lbl_dest = QLabel("Hedef (D)")
-        lbl_dest.setStyleSheet("color: #94a3b8; font-weight: 500;")
-        dest_wrapper.addWidget(lbl_dest)
+        lbl_dest.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 11px;")
+        dest_layout.addWidget(lbl_dest)
+        
         self.spin_dest = QSpinBox()
         self.spin_dest.setRange(0, 249)
         self.spin_dest.setValue(248)
-        self.spin_dest.setFixedHeight(30) 
+        self.spin_dest.setFixedHeight(32) 
         self.spin_dest.setStyleSheet(self._input_style())
-        dest_wrapper.addWidget(self.spin_dest)
-        sd_layout.addLayout(dest_wrapper)
+        dest_layout.addWidget(self.spin_dest)
+        sd_layout.addLayout(dest_layout)
         
-        opt_content_layout.addLayout(sd_layout)
+        opt_content_layout.addWidget(sd_container)
         
         # Talep seçici (CSV yüklendiğinde aktif)
         demand_layout = QVBoxLayout()
@@ -605,12 +615,29 @@ class ControlPanel(QWidget):
     
     def _on_optimize_clicked(self):
         """Optimize butonuna tıklandı."""
+        # Get demand if applicable
+        demand = 0.0
+        if self.combo_demands.isVisible():
+            idx = self.combo_demands.currentIndex()
+            if idx >= 0 and idx < len(self._demands):
+                # _demands is list of (src, dst, demand)
+                # Check if current source/dest match selected demand
+                # Even if they don't, if the user explicitly selected a demand, 
+                # we might want to respect it, or just use what's in the list.
+                # However, if user changes source manually, demand might not be relevant.
+                # Logic: If source/dest match the selected demand entry, use that demand.
+                d_src, d_dst, d_val = self._demands[idx]
+                if d_src == self.spin_source.value() and d_dst == self.spin_dest.value():
+                    demand = float(d_val)
+        
         self.optimize_requested.emit(
             self._get_algorithm_key(),
             self.spin_source.value(),
             self.spin_dest.value(),
-            self._get_weights()
+            self._get_weights(),
+            demand
         )
+
     
     def _on_compare_clicked(self):
         """Karşılaştır butonuna tıklandı."""

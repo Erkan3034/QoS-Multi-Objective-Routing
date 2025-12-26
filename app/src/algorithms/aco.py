@@ -231,6 +231,7 @@ class OptimizedACO:
         source: int,
         destination: int,
         weights: Dict[str, float] = None,
+        bandwidth_demand: float = 0.0,
         progress_callback: Optional[Callable[[int, float], None]] = None
     ) -> ACOResult:
         """
@@ -240,6 +241,7 @@ class OptimizedACO:
             source: Kaynak düğüm ID
             destination: Hedef düğüm ID
             weights: Metrik ağırlıkları
+            bandwidth_demand: İstenen bant genişliği (Mbps)
             progress_callback: İlerleme callback fonksiyonu
         
         Returns:
@@ -321,11 +323,12 @@ class OptimizedACO:
             for _ in range(self.n_elite_ants):
                 path = self._construct_solution(
                     source, destination, weights, 
-                    ant_type=AntType.ELITE
+                    ant_type=AntType.ELITE,
+                    bandwidth_demand=bandwidth_demand
                 )
                 
                 if path:
-                    fitness = self._evaluate_path(path, weights)
+                    fitness = self._evaluate_path(path, weights, bandwidth_demand)
                     
                     # [FIX] Local search disabled for performance
                     # 2-opt is too expensive for large graphs, removed to speed up
@@ -350,11 +353,12 @@ class OptimizedACO:
             for _ in range(self.n_common_ants):
                 path = self._construct_solution(
                     source, destination, weights,
-                    ant_type=AntType.COMMON
+                    ant_type=AntType.COMMON,
+                    bandwidth_demand=bandwidth_demand
                 )
                 
                 if path:
-                    fitness = self._evaluate_path(path, weights)
+                    fitness = self._evaluate_path(path, weights, bandwidth_demand)
                     common_paths.append(path)
                     common_fitness_scores.append(fitness)
                     
@@ -375,7 +379,8 @@ class OptimizedACO:
             # İstatistikleri güncelle
             self.best_fitness_history.append(best_fitness)
             if all_fitness_scores:
-                self.avg_fitness_history.append(np.mean(all_fitness_scores))
+                valid_scores = [s for s in all_fitness_scores if s != float('inf')]
+                self.avg_fitness_history.append(np.mean(valid_scores) if valid_scores else float('inf'))
                 diversity = self._calculate_diversity(all_paths)
                 self.diversity_history.append(diversity)
             
@@ -438,8 +443,18 @@ class OptimizedACO:
         # Fallback
         if best_path is None:
             try:
-                best_path = nx.shortest_path(self.graph, source, destination)
-                best_fitness = self._evaluate_path(best_path, weights)
+                # [FIX] Fallback should also respect bandwidth
+                if bandwidth_demand > 0:
+                    # Filter graph for bandwidth
+                    valid_edges = [
+                        (u, v) for u, v, d in self.graph.edges(data=True) 
+                        if d.get('bandwidth', 1000) >= bandwidth_demand
+                    ]
+                    temp_graph = self.graph.edge_subgraph(valid_edges)
+                    best_path = nx.shortest_path(temp_graph, source, destination)
+                else:
+                    best_path = nx.shortest_path(self.graph, source, destination)
+                best_fitness = self._evaluate_path(best_path, weights, bandwidth_demand)
             except Exception:
                 best_path = [source, destination]
                 best_fitness = float('inf')
@@ -525,7 +540,8 @@ class OptimizedACO:
         source: int,
         destination: int,
         weights: Dict[str, float],
-        ant_type: AntType
+        ant_type: AntType,
+        bandwidth_demand: float = 0.0
     ) -> Optional[List[int]]:
         """
         Tek karıncanın çözüm oluşturması.
@@ -541,9 +557,15 @@ class OptimizedACO:
         epsilon = self.epsilon if ant_type == AntType.COMMON else self.epsilon / 2
         
         while current != destination and len(path) < max_steps:
-            # [FIX] Use all neighbors for better exploration (removed candidate list for performance)
-            # This allows algorithm to explore all possibilities based on current weights
-            candidates = [n for n in self.graph.neighbors(current) if n not in visited]
+            # [FIX] Use all neighbors for better exploration
+            # Filter based on bandwidth demand
+            if bandwidth_demand > 0:
+                candidates = [
+                    n for n in self.graph.neighbors(current) 
+                    if n not in visited and self.graph[current][n].get('bandwidth', 1000) >= bandwidth_demand
+                ]
+            else:
+                candidates = [n for n in self.graph.neighbors(current) if n not in visited]
             
             if not candidates:
                 return None
@@ -577,6 +599,7 @@ class OptimizedACO:
         destination: int,
         weights: Dict[str, float]
     ) -> List[float]:
+
         """
         Geçiş olasılıkları: P(i,j) = (τ^α × η^β) / Σ(τ^α × η^β)
         """
@@ -655,7 +678,8 @@ class OptimizedACO:
     def _evaluate_path(
         self,
         path: List[int],
-        weights: Dict[str, float]
+        weights: Dict[str, float],
+        bandwidth_demand: float = 0.0
     ) -> float:
         """Yolu değerlendir."""
         try:
@@ -663,7 +687,8 @@ class OptimizedACO:
                 path,
                 weights['delay'],
                 weights['reliability'],
-                weights['resource']
+                weights['resource'],
+                bandwidth_demand
             )
         except Exception:
             return float('inf')

@@ -22,6 +22,7 @@ class OptimizationResult:
     resource_cost: float
     weighted_cost: float
     computation_time_ms: float
+    min_bandwidth: float = 0.0
 
 class ComparisonRow(QWidget):
     """Karşılaştırma sonucunu gösteren tek satır (kart)."""
@@ -439,7 +440,14 @@ class ResultsPanel(QWidget):
             return
 
         hops = len(result.path) - 1
-        self.lbl_path_title.setText(f"Bulunan Yol ({hops} hop)")
+        
+        # [UX] Highlight Direct Connections
+        if hops == 1:
+            self.lbl_path_title.setText(f"Bulunan Yol ({hops} hop) - [DOĞRUDAN BAĞLANTI]")
+            self.lbl_path_title.setStyleSheet("color: #4CAF50; font-size: 11px; font-weight: 500;") # Green for direct
+        else:
+            self.lbl_path_title.setText(f"Bulunan Yol ({hops} hop)")
+            self.lbl_path_title.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500;") # Default color
         
         if len(result.path) > 5:
             path_str = f"{result.path[0]} → ... → {result.path[-1]}"

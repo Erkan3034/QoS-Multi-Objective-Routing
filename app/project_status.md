@@ -76,101 +76,36 @@ minimize F(P) = W_delay × Delay(P) + W_reliability × ReliabilityCost(P) + W_re
 ---
 
 ## ⚠️ EKSİK BÖLÜMLER
-
-### 1. Bandwidth Kısıtı - Algoritma İçi (0%)
-
-**Mevcut Durum:**
-- Algoritmalar bandwidth'i göz ardı ederek yol buluyor
-- Yol bulunduktan SONRA bandwidth kontrolü yapılıyor
-- Yetersizse "FAILED" olarak işaretleniyor
-
-**Olması Gereken:**
-- Algoritmalar yol ararken bandwidth kontrolü yapmalı
-- `min(path_bandwidth) >= demand_mbps` sağlanmalı
-
-### 2. Sonuç Export (0%)
-
+    
+### 1. Sonuç Export (0%)
+    
 **Eksik:**
 - JSON/CSV dosyasına kaydetme
 - Rapor oluşturma
+- Graf görüntülerini kaydetme options
 
 ---
-
-## 📁 Dosya Yapısı
-
-```
-pyqt5-desktop/
-├── main.py                 # Ana giriş noktası
-├── requirements.txt        # Bağımlılıklar
-├── src/
-│   ├── core/
-│   │   └── config.py       # Konfigürasyon
-│   ├── services/
-│   │   ├── graph_service.py    # Graf yükleme/oluşturma
-│   │   └── metrics_service.py  # Metrik hesaplama
-│   ├── algorithms/
-│   │   ├── __init__.py
-│   │   ├── genetic_algorithm.py
-│   │   ├── aco.py
-│   │   ├── pso.py
-│   │   ├── simulated_annealing.py
-│   │   ├── q_learning.py
-│   │   └── sarsa.py
-│   ├── experiments/
-│   │   ├── experiment_runner.py  # Deney çalıştırıcı
-│   │   └── test_cases.py         # Test case tanımları
-│   └── ui/
-│       ├── main_window.py
-│       └── components/
-│           ├── control_panel.py
-│           ├── graph_widget.py
-│           └── results_panel.py
-└── graph_data/             # Hocanın verileri
-    ├── BSM307_317_Guz2025_TermProject_NodeData.csv
-    ├── BSM307_317_Guz2025_TermProject_EdgeData.csv
-    └── BSM307_317_Guz2025_TermProject_DemandData.csv
-```
-
----
-
-## 📈 Veri İstatistikleri
-
-| Veri | Değer |
-|------|-------|
-| Düğüm Sayısı | 250 |
-| Kenar Sayısı | 12,452 |
-| Talep Çifti Sayısı | 30 |
-| Ortalama Derece | 99.62 |
-| Graf Bağlantılı mı? | ✅ Evet |
-| Processing Delay Aralığı | 0.51 - 1.99 ms |
-| Node Reliability Aralığı | 0.950 - 0.999 |
-| Link Bandwidth Aralığı | 100 - 1000 Mbps |
-| Link Delay Aralığı | 3 - 15 ms |
-| Link Reliability Aralığı | 0.950 - 0.999 |
-| Demand Aralığı | 18 - 200 Mbps |
-
----
-
+    
 ## 🏁 Sonraki Adımlar
-
-1. **[KRİTİK]** Bandwidth kısıtını algoritmalara entegre et
-2. **[ORTA]** Sonuç export fonksiyonları ekle
-3. **[DÜŞÜK]** UI'dan tam deney çalıştırma
-
+    
+1. **[ORTA]** Sonuç export fonksiyonları ekle
+2. **[DÜŞÜK]** UI'dan tam deney çalıştırma
+3. **[OPSİYONEL]** Algoritma parametre ince ayarı
+    
 ---
-
+    
 ## 📊 Tamamlanma Durumu
-
+    
 ```
 Graf Altyapısı:        ████████████████████ 100%
 Metrik Hesaplama:      ████████████████████ 100%
 Algoritmalar:          ████████████████████ 100%
 Deney Altyapısı:       ████████████████████ 100%
 B Kısıtı (post):       ████████████████████ 100%
-B Kısıtı (algoritma):  ░░░░░░░░░░░░░░░░░░░░   0%
-UI:                    ██████████████████░░  90%
+B Kısıtı (algoritma):  ████████████████████ 100%
+UI:                    ███████████████████░  95%
 Export:                ░░░░░░░░░░░░░░░░░░░░   0%
-
-GENEL:                 ████████████████░░░░  85%
+    
+GENEL:                 ███████████████████░  95%
 ```
 

@@ -12,7 +12,7 @@ import os
 
 class PathParticle:
     """Yol üzerinde hareket eden parçacık."""
-    def __init__(self, path_nodes: List[int], positions: Dict[int, tuple], speed=0.01, offset=0.0):
+    def __init__(self, path_nodes: List[int], positions: Dict[int, tuple], speed=0.03, offset=0.0):
         self.path_nodes = path_nodes
         self.positions = positions
         self.position = offset
@@ -61,6 +61,7 @@ class GraphWidget(QWidget):
         self.graph: Optional[nx.Graph] = None
         self.positions: Dict[int, tuple] = {}
         self.path: List[int] = []
+        self.path_color: str = '#f59e0b'  # Default amber-500
         self.source: Optional[int] = None
         self.destination: Optional[int] = None
         
@@ -112,13 +113,10 @@ class GraphWidget(QWidget):
     def _setup_ui(self):
         self.setObjectName("GraphWidget")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("""
-            QWidget#GraphWidget {
-                background-color: #111827;
-                border: 1px solid #1f2937;
-                border-radius: 16px;
-            }
-        """)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        
+        # Initial stylesheet empty - set in the block below to combine with gradient
+        self.setStyleSheet("")
         
         layout = QVBoxLayout(self)
         layout.setContentsMargins(1, 1, 1, 1) # Small margin to show border/radius
@@ -130,15 +128,31 @@ class GraphWidget(QWidget):
         
         # Plot Widget
         self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground('#111827') # Match parent bg
+        self.plot_widget.setBackground(None) # Make plot background transparent to show gradient below
         self.plot_widget.setFrameShape(QFrame.NoFrame) # Remove internal border
+        
+        # Set gradient on the parent GraphWidget via stylesheet
+        self.setStyleSheet("""
+            QWidget#GraphWidget {
+                background: qradialgradient(
+                    cx: 0.5, cy: 0.5, radius: 0.8,
+                    fx: 0.5, fy: 0.5,
+                    stop: 0 #1e293b, /* Slate-800 center (Glow) */
+                    stop: 0.5 #0f172a, /* Slate-900 mid */
+                    stop: 1 #020617  /* Slate-950 edge (Dark) */
+                );
+                border: 1px solid #1f2937;
+                border-radius: 16px;
+            }
+        """)
         
         # Set size policy for proper expansion
         from PyQt5.QtWidgets import QSizePolicy
         self.plot_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
         self.plot_widget.setAspectLocked(True)
-        self.plot_widget.showGrid(x=False, y=False)
+        # Enable grid for "Tactical Map" look - subtle
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.08) 
         self.plot_widget.hideAxis('left')
         self.plot_widget.hideAxis('bottom')
         self.plot_widget.disableAutoRange()
@@ -278,8 +292,9 @@ class GraphWidget(QWidget):
         self._draw_graph()
         self._fit_view()
 
-    def set_path(self, path: List[int]):
+    def set_path(self, path: List[int], color: str = '#f59e0b'):
         self.path = path
+        self.path_color = color
         self._update_path_display()
         self._init_particles()
 
@@ -401,28 +416,29 @@ class GraphWidget(QWidget):
             connect='finite'
         )
         
-        # Intermediate Nodes Scatter (Yellow)
+        # Intermediate Nodes Scatter (Path Nodes)
+        # User requested "green dots style" but smaller. keeping path_color for consistency but styling them up.
         self.intermediate_scatter = pg.ScatterPlotItem(
-            size=36, # Same as Source/Dest
-            brush=pg.mkBrush(245, 158, 11, 255), # amber-500
-            pen=pg.mkPen('w', width=2), # Match border width of S/D (2)
+            size=28, # Smaller than S/D (45) but larger than normal nodes (10)
+            brush=pg.mkBrush(245, 158, 11, 255), # Default amber, changes with set_path
+            pen=pg.mkPen('w', width=2),
             pxMode=True
         )
         self.plot_widget.addItem(self.intermediate_scatter)
         
-        # Source & Dest Scatters (Large)
+        # Source & Dest Scatters (Large Pointers - Circle)
         self.source_scatter = pg.ScatterPlotItem(
-            size=36,
+            size=45, # Large to act as "Pointer"
             brush=pg.mkBrush(34, 197, 94, 255), # green-500
-            pen=pg.mkPen('w', width=2),
+            pen=pg.mkPen('w', width=3), # Thicker white border
             pxMode=True
         )
         self.plot_widget.addItem(self.source_scatter)
         
         self.dest_scatter = pg.ScatterPlotItem(
-            size=36, 
+            size=45, # Large to act as "Pointer"
             brush=pg.mkBrush(239, 68, 68, 255), # red-500
-            pen=pg.mkPen('w', width=2),
+            pen=pg.mkPen('w', width=3), # Thicker white border
             pxMode=True
         )
         self.plot_widget.addItem(self.dest_scatter)
@@ -448,6 +464,18 @@ class GraphWidget(QWidget):
             self.timer.stop()
             return
         
+        # Convert hex/str color to QColor with alpha
+        c = QColor(self.path_color)
+        pen_color = (c.red(), c.green(), c.blue(), 255)
+        glow_color = (c.red(), c.green(), c.blue(), 100)
+        
+        self.path_lines.setPen(pg.mkPen(
+            color=pen_color, 
+            width=3,
+            style=Qt.DashLine # Dashed line for "simulated" look
+        ))
+        self.path_glow.setPen(pg.mkPen(color=glow_color, width=8))
+        
         # Path edges
         edge_x = []
         edge_y = []
@@ -464,6 +492,9 @@ class GraphWidget(QWidget):
         self.path_lines.setData(edge_x, edge_y)
         self.path_lines.setData(edge_x, edge_y)
         self.path_glow.setData(edge_x, edge_y)
+
+        # Update Intermediate Nodes Color
+        self.intermediate_scatter.setBrush(pg.mkBrush(self.path_color))
 
         # Update Intermediate Nodes
         int_pos = []
@@ -483,15 +514,18 @@ class GraphWidget(QWidget):
         
     def _init_particles(self):
         self.particles = []
-        if not self.path:
+        if not self.path or len(self.path) < 2:
             return
             
-        # Create particles
-        for i in range(3):
-            offset = i * (len(self.path) / 3)
-            self.particles.append(PathParticle(self.path, self.positions, offset=offset))
+        # Create particles - Density based on path length
+        # More particles for a "flow" effect
+        num_particles = min(20, max(5, len(self.path) * 2))
+        
+        for i in range(num_particles):
+            offset = i * (len(self.path) / num_particles)
+            self.particles.append(PathParticle(self.path, self.positions, offset=offset, speed=0.03))
             
-        self.timer.start(30)
+        self.timer.start(20) # Faster updates for smoother animation
 
     def _update_animation(self):
         if not self.particles:

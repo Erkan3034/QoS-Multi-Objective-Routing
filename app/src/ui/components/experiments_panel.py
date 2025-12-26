@@ -1,495 +1,478 @@
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, 
     QFrame, QScrollArea, QSpinBox, QGraphicsOpacityEffect,
-    QSizePolicy, QLineEdit
+    QSizePolicy, QLineEdit, QComboBox, QToolButton, QDialog
 )
 from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QSize, QParallelAnimationGroup
 from PyQt5.QtGui import QIcon
+from dataclasses import dataclass, field
+from typing import List
+
+try:
+    import matplotlib
+    matplotlib.use('Qt5Agg')
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
+
+@dataclass
+class ComparisonResult:
+    algo_name: str
+    cost: float
+    time: float
+    weighted_cost: float = 0.0
+    path: List[int] = field(default_factory=list)
+
+class AlgorithmComparisonDialog(QDialog):
+    """
+    İki algoritmayı kıyaslayan pencere (Dialog).
+    """
+    compare_requested = pyqtSignal(str, str)
+    show_path_requested = pyqtSignal(list, str) # path, color_hex
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Algoritma Kıyaslama Aracı")
+        self.setFixedSize(850, 600) # Increased height for buttons
+        self.setStyleSheet("background-color: #0f172a;")
+        self.path1 = []
+        self.path2 = []
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
+        
+        # Title
+        title = QLabel("🤖 Algoritma Karşılaştırma")
+        title.setStyleSheet("color: white; font-size: 18px; font-weight: bold;")
+        title.setAlignment(Qt.AlignCenter)
+        layout.addWidget(title)
+        
+        # Info Label (Source -> Dest)
+        self.info_label = QLabel("Kıyaslama için algoritmaları seçip başlatın.")
+        self.info_label.setStyleSheet("color: #94a3b8; font-size: 13px; font-style: italic;")
+        self.info_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.info_label)
+        
+        # Selection Area
+        sel_container_layout = QHBoxLayout()
+        
+        # Algoritmalar
+        self.algo_options = [
+            ("Genetik Algoritma", "ga"),
+            ("Karınca Kolonisi", "aco"),
+            ("Parçacık Sürü (PSO)", "pso"),
+            ("Benzetim Tavlama (SA)", "sa"),
+            ("Q-Learning", "qlearning"),
+            ("SARSA", "sarsa")
+        ]
+        
+        self.combo1 = self._create_combo()
+        self.combo2 = self._create_combo()
+        self.combo1.setCurrentIndex(0) # Genetic
+        self.combo2.setCurrentIndex(1) # ACO
+        
+        sel_container_layout.addWidget(self.combo1)
+        
+        vs_lbl = QLabel("VS")
+        vs_lbl.setStyleSheet("color: #64748b; font-weight: bold;")
+        sel_container_layout.addWidget(vs_lbl)
+        
+        sel_container_layout.addWidget(self.combo2)
+        
+        layout.addLayout(sel_container_layout)
+        
+        # Run Button
+        self.btn_run = QPushButton("⚡ Analizi Başlat")
+        self.btn_run.setCursor(Qt.PointingHandCursor)
+        self.btn_run.setFixedHeight(40)
+        self.btn_run.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6; color: white; font-weight: bold;
+                border-radius: 8px; font-size: 14px;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        self.btn_run.clicked.connect(self._on_compare_clicked)
+        layout.addWidget(self.btn_run)
+        
+        # Chart Container
+        self.chart_container = QFrame()
+        self.chart_container.setStyleSheet("background-color: #1e293b; border-radius: 12px;")
+        chart_layout = QVBoxLayout(self.chart_container)
+        
+        if MATPLOTLIB_AVAILABLE:
+            self.figure = Figure(figsize=(8, 4), facecolor='#1e293b')
+            self.canvas = FigureCanvas(self.figure)
+            self.canvas.setStyleSheet("background: transparent;")
+            chart_layout.addWidget(self.canvas)
+        else:
+            lbl = QLabel("Matplotlib yok")
+            lbl.setStyleSheet("color: white;")
+            chart_layout.addWidget(lbl)
+            
+        layout.addWidget(self.chart_container)
+        
+        # Path Visualization Buttons
+        path_btn_layout = QHBoxLayout()
+        
+        self.btn_show_path1 = QPushButton("Sol Grafikteki Yolu Göster (Mavi)")
+        self.btn_show_path1.setCursor(Qt.PointingHandCursor)
+        self.btn_show_path1.clicked.connect(lambda: self.show_path_requested.emit(self.path1, '#3b82f6'))
+        self.btn_show_path1.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6; color: white; font-weight: bold;
+                border-radius: 6px; padding: 8px;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+            QPushButton:disabled { background-color: #334155; color: #64748b; }
+        """)
+        self.btn_show_path1.setEnabled(False)
+        
+        self.btn_show_path2 = QPushButton("Sağ Grafikteki Yolu Göster (Turuncu)")
+        self.btn_show_path2.setCursor(Qt.PointingHandCursor)
+        self.btn_show_path2.clicked.connect(lambda: self.show_path_requested.emit(self.path2, '#f59e0b'))
+        self.btn_show_path2.setStyleSheet("""
+            QPushButton {
+                background-color: #f59e0b; color: white; font-weight: bold;
+                border-radius: 6px; padding: 8px;
+            }
+            QPushButton:hover { background-color: #d97706; }
+            QPushButton:disabled { background-color: #334155; color: #64748b; }
+        """)
+        self.btn_show_path2.setEnabled(False)
+        
+        path_btn_layout.addWidget(self.btn_show_path1)
+        path_btn_layout.addWidget(self.btn_show_path2)
+        
+        layout.addLayout(path_btn_layout)
+        
+    def _create_combo(self):
+        cb = QComboBox()
+        for name, key in self.algo_options:
+            cb.addItem(name, key)
+        cb.setFixedHeight(35)
+        cb.setStyleSheet("""
+            QComboBox {
+                background-color: #334155; color: white; border: 1px solid #475569;
+                border-radius: 6px; padding: 0 10px;
+            }
+            QComboBox::drop-down { border: none; }
+            QComboBox::down-arrow {
+                image: none; border-top: 5px solid #94a3b8; margin-right: 8px;
+                border-left: 5px solid transparent; border-right: 5px solid transparent;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #1e293b; color: white; selection-background-color: #3b82f6;
+            }
+        """)
+        return cb
+        
+    def _on_compare_clicked(self):
+        algo1 = self.combo1.currentData()
+        algo2 = self.combo2.currentData()
+        self.compare_requested.emit(algo1, algo2)
+        self.btn_run.setText("Hesaplanıyor...")
+        self.btn_run.setEnabled(False)
+        self.info_label.setText("Hesaplanıyor, lütfen bekleyin...")
+        self.btn_show_path1.setEnabled(False)
+        self.btn_show_path2.setEnabled(False)
+        
+    def update_results(self, r1: ComparisonResult, r2: ComparisonResult, source: int, dest: int):
+        self.btn_run.setText("⚡ Analizi Başlat")
+        self.btn_run.setEnabled(True)
+        self.info_label.setText(f"Kıyaslanan Güzergah: Düğüm {source} ➔ Düğüm {dest}")
+        
+        # Store paths
+        self.path1 = r1.path
+        self.path2 = r2.path
+        
+        # Update buttons
+        self.btn_show_path1.setText(f"{r1.algo_name} Yolunu Göster")
+        self.btn_show_path2.setText(f"{r2.algo_name} Yolunu Göster")
+        self.btn_show_path1.setEnabled(True)
+        self.btn_show_path2.setEnabled(True)
+        
+        if not MATPLOTLIB_AVAILABLE: return
+        
+        self.figure.clear()
+        
+        # Subplot 1: Weighted Cost
+        ax1 = self.figure.add_subplot(121, facecolor='#1e293b')
+        
+        labels = [r1.algo_name, r2.algo_name]
+        costs = [r1.weighted_cost if r1.weighted_cost > 0 else r1.cost, 
+                 r2.weighted_cost if r2.weighted_cost > 0 else r2.cost]
+        colors_cost = ['#3b82f6', '#f59e0b']
+        
+        bars1 = ax1.bar(labels, costs, color=colors_cost, width=0.4)
+        
+        for bar in bars1:
+            height = bar.get_height()
+            ax1.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.4f}',
+                    ha='center', va='bottom', color='white', fontsize=9)
+        
+        ax1.set_title("Ağırlıklı Maliyet (Daha düşük iyi)", color='#e2e8f0', pad=10)
+        ax1.tick_params(axis='x', colors='#cbd5e1', labelsize=9)
+        ax1.tick_params(axis='y', colors='#64748b', labelsize=8)
+        
+        # Subplot 2: Execution Time
+        ax2 = self.figure.add_subplot(122, facecolor='#1e293b')
+        times = [r1.time, r2.time]
+        colors_time = ['#10b981', '#ec4899']
+        
+        bars2 = ax2.bar(labels, times, color=colors_time, width=0.4)
+        
+        for bar in bars2:
+            height = bar.get_height()
+            ax2.text(bar.get_x() + bar.get_width()/2., height,
+                    f'{height:.1f}ms',
+                    ha='center', va='bottom', color='white', fontsize=9)
+                    
+        ax2.set_title("Çalışma Süresi (ms)", color='#e2e8f0', pad=10)
+        ax2.tick_params(axis='x', colors='#cbd5e1', labelsize=9)
+        ax2.tick_params(axis='y', colors='#64748b', labelsize=8)
+        
+        for ax in [ax1, ax2]:
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_color('#334155')
+            ax.spines['left'].set_visible(False)
+            ax.grid(axis='y', alpha=0.1, linestyle='--')
+        
+        self.figure.tight_layout()
+        self.canvas.draw()
+
+
+class AlgorithmComparisonCard(QFrame):
+    """
+    Kıyaslama aracını açan küçük kart (Launcher).
+    """
+    open_requested = pyqtSignal()
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._setup_ui()
+        
+    def _setup_ui(self):
+        self.setStyleSheet("""
+            QFrame {
+                background-color: #1e293b;
+                border-radius: 12px;
+                border: 1px solid #334155;
+            }
+        """)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
+        
+        # Icon
+        icon = QLabel("⚖️")
+        icon.setStyleSheet("font-size: 24px;")
+        layout.addWidget(icon)
+        
+        # Texts
+        text_layout = QVBoxLayout()
+        title = QLabel("Algoritma Kıyaslama")
+        title.setStyleSheet("color: white; font-weight: bold; font-size: 14px;")
+        desc = QLabel("İki algoritmayı detaylı karşılaştırın.")
+        desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        text_layout.addWidget(title)
+        text_layout.addWidget(desc)
+        layout.addLayout(text_layout)
+        
+        layout.addStretch()
+        
+        # Button
+        btn = QPushButton("Aracı Aç")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet("""
+            QPushButton {
+                background-color: #3b82f6; color: white; font-weight: bold;
+                border-radius: 6px; padding: 6px 12px;
+            }
+            QPushButton:hover { background-color: #2563eb; }
+        """)
+        btn.clicked.connect(self.open_requested.emit)
+        layout.addWidget(btn)
 
 class PresetExperimentCard(QFrame):
-    """
-    Önceden tanımlı deneyler için genişleyebilir kart.
-    """
-    run_requested = pyqtSignal(int)  # repeat_count sends
+    """Hazır 25 testlik deneyi çalıştıran kart."""
+    run_requested = pyqtSignal(int) # n_repeats
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.is_expanded = False
-        self._setup_ui()
-        
-    def _setup_ui(self):
-        self.setObjectName("PresetCard")
         self.setStyleSheet("""
-            QFrame#PresetCard {
-                background-color: #1e293b; 
-                border-radius: 16px;
-                border: 1px solid #1f2937;
-            }
-            QFrame#PresetCard:hover {
+            QFrame {
+                background-color: #1e293b;
+                border-radius: 12px;
                 border: 1px solid #334155;
             }
         """)
+        self._setup_ui()
         
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(0)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
         
-        # === HEADER (Always Visible) ===
-        self.header_frame = QFrame()
-        self.header_frame.setCursor(Qt.PointingHandCursor)
-        self.header_frame.mousePressEvent = self._toggle_expand
-        self.header_frame.setStyleSheet("background: transparent;")
+        # Header area
+        h_layout = QHBoxLayout()
+        icon = QLabel("🧪")
+        icon.setStyleSheet("font-size: 16px;")
+        title = QLabel("Toplu Deney (25 Test)")
+        title.setStyleSheet("color: white; font-weight: bold;")
+        h_layout.addWidget(icon)
+        h_layout.addWidget(title)
+        h_layout.addStretch()
+        layout.addLayout(h_layout)
         
-        header_layout = QHBoxLayout(self.header_frame)
-        header_layout.setContentsMargins(15, 12, 15, 12)
-        header_layout.setSpacing(10)
+        # Content
+        desc = QLabel("Önceden belirlenmiş 25 test seti üzerinde tüm algoritmaları çalıştırır.")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        layout.addWidget(desc)
         
-        # Icon ("play" triangle)
-        self.icon_label = QLabel("▷")
-        self.icon_label.setStyleSheet("color: #10b981; font-size: 16px; font-weight: bold;")
-        header_layout.addWidget(self.icon_label)
+        # Repeats input
+        row = QHBoxLayout()
+        lbl = QLabel("Tekrar:")
+        lbl.setStyleSheet("color: #cbd5e1;")
         
-        # Title
-        title_box = QVBoxLayout()
-        title_box.setSpacing(2)
-        
-        self.title_lbl = QLabel("Önceden Tanımlı Deneyler")
-        self.title_lbl.setStyleSheet("color: #e2e8f0; font-weight: bold; font-size: 14px;")
-        title_box.addWidget(self.title_lbl)
-        
-        self.subtitle_lbl = QLabel("(25 Test)")
-        self.subtitle_lbl.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 12px;")
-        title_box.addWidget(self.subtitle_lbl)
-        
-        header_layout.addLayout(title_box)
-        header_layout.addStretch()
-        
-        # Arrow (Right >)
-        self.arrow_lbl = QLabel("›") 
-        self.arrow_lbl.setStyleSheet("color: #64748b; font-size: 20px; font-weight: bold;")
-        header_layout.addWidget(self.arrow_lbl)
-        
-        self.main_layout.addWidget(self.header_frame)
-        
-        # === CONTENT (Collapsible) ===
-        # === CONTENT (Collapsible) ===
-        self.content_frame = QFrame()
-        self.content_frame.setObjectName("ContentFrame")
-        self.content_frame.setStyleSheet("""
-            QFrame#ContentFrame {
-                background-color: rgba(0, 0, 0, 0.2);
-                border-bottom-left-radius: 16px;
-                border-bottom-right-radius: 16px;
-            }
-        """)
-        self.content_frame.setVisible(False)
-        
-        content_layout = QVBoxLayout(self.content_frame)
-        content_layout.setContentsMargins(15, 15, 15, 15)
-        content_layout.setSpacing(15)
-        
-        # Description
-        desc_lbl = QLabel(
-            "20+ farklı (S, D, B) örneği ile deney\n"
-            "çalıştır. Her test 5 kez tekrarlanır ve\n"
-            "istatistikler hesaplanır."
-        )
-        desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 13px; line-height: 1.4;")
-        content_layout.addWidget(desc_lbl)
-        
-        # Controls Row
-        controls_layout = QHBoxLayout()
-        controls_layout.setSpacing(10)
-        
-        lbl_repeat = QLabel("Tekrar Sayısı:")
-        lbl_repeat.setStyleSheet("color: #cbd5e1; font-weight: 600; font-size: 13px;")
-        controls_layout.addWidget(lbl_repeat)
-        
-        self.spin_repeat = QSpinBox()
-        self.spin_repeat.setRange(1, 20)
-        self.spin_repeat.setValue(5)
-        self.spin_repeat.setFixedWidth(60)
-        self.spin_repeat.setFixedHeight(30)
-        self.spin_repeat.setStyleSheet("""
+        self.spin_repeats = QSpinBox()
+        self.spin_repeats.setRange(1, 20)
+        self.spin_repeats.setValue(5)
+        self.spin_repeats.setPrefix("x")
+        self.spin_repeats.setStyleSheet("""
             QSpinBox {
-                background-color: #334155;
-                color: white;
-                border: 1px solid #475569;
-                border-radius: 8px;
-                padding: 0 10px;
-                font-weight: bold;
-                font-size: 14px;
-            }
-            QSpinBox:focus {
-                border: 1px solid #3b82f6;
-            }
-            QSpinBox::up-button, QSpinBox::down-button {
-                width: 0px;
-                height: 0px;
-                border: none;
-                background: transparent;
+                background-color: #0f172a; color: white; border: 1px solid #475569;
+                border-radius: 4px; padding: 2px;
             }
         """)
-        controls_layout.addWidget(self.spin_repeat)
-        controls_layout.addStretch()
         
-        content_layout.addLayout(controls_layout)
-        
-        # Run Button
-        self.btn_run = QPushButton("▷ Deneyleri Çalıştır")
+        self.btn_run = QPushButton("Başlat")
         self.btn_run.setCursor(Qt.PointingHandCursor)
-        self.btn_run.setFixedHeight(38)
         self.btn_run.setStyleSheet("""
             QPushButton {
-                background-color: #10b981; /* Emerald 500 */
-                color: white;
-                font-weight: bold;
-                border-radius: 8px;
-                font-size: 14px;
-                border: none;
+                background-color: #10b981; color: white; font-weight: bold;
+                border-radius: 6px; padding: 6px 12px;
             }
-            QPushButton:hover {
-                background-color: #059669; /* Emerald 600 */
-            }
-            QPushButton:pressed {
-                background-color: #047857;
-            }
-            QPushButton:disabled {
-                background-color: #334155;
-                color: #64748b;
-            }
+            QPushButton:hover { background-color: #059669; }
         """)
-        self.btn_run.clicked.connect(self._on_run_clicked)
-        content_layout.addWidget(self.btn_run)
+        self.btn_run.clicked.connect(lambda: self.run_requested.emit(self.spin_repeats.value()))
         
-        self.main_layout.addWidget(self.content_frame)
-        
-    def _toggle_expand(self, event=None):
-        self.is_expanded = not self.is_expanded
-        
-        if self.is_expanded:
-            self.content_frame.setVisible(True)
-            self.arrow_lbl.setText("⌄") # Down arrow
-            self.icon_label.setText("▼") # Or some other indicator if needed
-             # Adjust styling for expanded state if needed
-            self.header_frame.setStyleSheet("background: transparent;")
-        else:
-            self.content_frame.setVisible(False)
-            self.arrow_lbl.setText("›") # Right arrow
-            self.icon_label.setText("▷")
-            self.header_frame.setStyleSheet("background: transparent; border-bottom: none;")
-            
-    def _on_run_clicked(self):
-        self.run_requested.emit(self.spin_repeat.value())
+        row.addWidget(lbl)
+        row.addWidget(self.spin_repeats)
+        row.addStretch()
+        row.addWidget(self.btn_run)
+        layout.addLayout(row)
         
     def set_loading(self, loading: bool):
         self.btn_run.setEnabled(not loading)
-        self.spin_repeat.setEnabled(not loading)
-        self.header_frame.setEnabled(not loading)
-
+        self.btn_run.setText("Çalışıyor..." if loading else "Başlat")
 
 class ScalabilityAnalysisCard(QFrame):
-    """
-    Ölçeklenebilirlik analizi için genişleyebilir kart.
-    """
-    run_requested = pyqtSignal(list)  # [50, 100, 150...]
+    """Ölçeklenebilirlik analizi kartı."""
+    run_requested = pyqtSignal(list) # node_counts list
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.is_expanded = False
-        self._setup_ui()
-        
-    def _setup_ui(self):
-        self.setObjectName("ScaleCard")
         self.setStyleSheet("""
-            QFrame#ScaleCard {
-                background-color: #1e293b; 
-                border-radius: 16px;
-                border: 1px solid #1f2937;
-            }
-            QFrame#ScaleCard:hover {
+            QFrame {
+                background-color: #1e293b;
+                border-radius: 12px;
                 border: 1px solid #334155;
             }
         """)
+        self._setup_ui()
         
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(0)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
         
-        # === HEADER (Always Visible) ===
-        self.header_frame = QFrame()
-        self.header_frame.setCursor(Qt.PointingHandCursor)
-        self.header_frame.mousePressEvent = self._toggle_expand
-        self.header_frame.setStyleSheet("background: transparent;")
+        h_layout = QHBoxLayout()
+        icon = QLabel("📈")
+        icon.setStyleSheet("font-size: 16px;")
+        title = QLabel("Ölçeklenebilirlik")
+        title.setStyleSheet("color: white; font-weight: bold;")
+        h_layout.addWidget(icon)
+        h_layout.addWidget(title)
+        h_layout.addStretch()
+        layout.addLayout(h_layout)
         
-        header_layout = QHBoxLayout(self.header_frame)
-        header_layout.setContentsMargins(15, 12, 15, 12)
-        header_layout.setSpacing(10)
+        desc = QLabel("Düğüm sayısı arttıkça performans değişimini analiz et (20-50 düğüm).")
+        desc.setWordWrap(True)
+        desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        layout.addWidget(desc)
         
-        # Icon ("trend" / arrow)
-        self.icon_label = QLabel("↗")
-        self.icon_label.setStyleSheet("color: #3b82f6; font-size: 16px; font-weight: bold;")
-        header_layout.addWidget(self.icon_label)
-        
-        # Title
-        self.title_lbl = QLabel("Ölçeklenebilirlik Analizi")
-        self.title_lbl.setStyleSheet("color: #e2e8f0; font-weight: bold; font-size: 14px;")
-        header_layout.addWidget(self.title_lbl)
-        
-        header_layout.addStretch()
-        
-        # Arrow (Right >)
-        self.arrow_lbl = QLabel("›") 
-        self.arrow_lbl.setStyleSheet("color: #64748b; font-size: 20px; font-weight: bold;")
-        header_layout.addWidget(self.arrow_lbl)
-        
-        self.main_layout.addWidget(self.header_frame)
-        
-        # === CONTENT (Collapsible) ===
-        # === CONTENT (Collapsible) ===
-        self.content_frame = QFrame()
-        self.content_frame.setObjectName("ContentFrame")
-        self.content_frame.setStyleSheet("""
-            QFrame#ContentFrame {
-                background-color: rgba(0, 0, 0, 0.2);
-                border-bottom-left-radius: 16px;
-                border-bottom-right-radius: 16px;
-            }
-        """)
-        self.content_frame.setVisible(False)
-        
-        content_layout = QVBoxLayout(self.content_frame)
-        content_layout.setContentsMargins(15, 15, 15, 15)
-        content_layout.setSpacing(15)
-        
-        # Description
-        desc_lbl = QLabel(
-            "Farklı graf boyutları için algoritma\n"
-            "performanslarını ölçer. (Opsiyonel\n"
-            "gereksinim)"
-        )
-        desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 13px; line-height: 1.4;")
-        content_layout.addWidget(desc_lbl)
-        
-        # Input Row
-        input_container = QVBoxLayout()
-        input_container.setSpacing(6)
-        
-        lbl_nodes = QLabel("Düğüm Sayıları (virgülle ayrılmış):")
-        lbl_nodes.setStyleSheet("color: #cbd5e1; font-weight: 600; font-size: 13px;")
-        input_container.addWidget(lbl_nodes)
-        
-        self.input_nodes = QLineEdit("50,100,150,200,250")
-        self.input_nodes.setFixedHeight(36)
-        self.input_nodes.setStyleSheet("""
-            QLineEdit {
-                background-color: #334155;
-                color: white;
-                border: 1px solid #475569;
-                border-radius: 6px;
-                padding: 0 10px;
-                font-weight: 500;
-            }
-            QLineEdit:focus {
-                border: 1px solid #3b82f6;
-            }
-        """)
-        input_container.addWidget(self.input_nodes)
-        content_layout.addLayout(input_container)
-        
-        # Run Button
-        self.btn_run = QPushButton("↗ Analizi Çalıştır")
+        self.btn_run = QPushButton("Analiz Et")
         self.btn_run.setCursor(Qt.PointingHandCursor)
-        self.btn_run.setFixedHeight(38)
         self.btn_run.setStyleSheet("""
             QPushButton {
-                background-color: #2563eb; /* Blue 600 */
-                color: white;
-                font-weight: bold;
-                border-radius: 8px;
-                font-size: 14px;
-                border: none;
+                background-color: #8b5cf6; color: white; font-weight: bold;
+                border-radius: 6px; padding: 6px;
             }
-            QPushButton:hover {
-                background-color: #1d4ed8; /* Blue 700 */
-            }
-            QPushButton:pressed {
-                background-color: #1e40af;
-            }
-            QPushButton:disabled {
-                background-color: #334155;
-                color: #64748b;
-            }
+            QPushButton:hover { background-color: #7c3aed; }
         """)
-        self.btn_run.clicked.connect(self._on_run_clicked)
-        content_layout.addWidget(self.btn_run)
-        
-        self.main_layout.addWidget(self.content_frame)
-        
-    def _toggle_expand(self, event=None):
-        self.is_expanded = not self.is_expanded
-        
-        if self.is_expanded:
-            self.content_frame.setVisible(True)
-            self.arrow_lbl.setText("⌄")
-            self.header_frame.setStyleSheet("background: transparent;")
-        else:
-            self.content_frame.setVisible(False)
-            self.arrow_lbl.setText("›")
-            self.header_frame.setStyleSheet("background: transparent; border-bottom: none;")
-            
-    def _on_run_clicked(self):
-        text = self.input_nodes.text()
-        try:
-            # Parse nodes
-            nodes = [int(x.strip()) for x in text.split(",") if x.strip().isdigit()]
-            if not nodes:
-                nodes = [50, 100, 150, 200, 250]
-            self.run_requested.emit(nodes)
-        except ValueError:
-            pass # Handle error appropriately or ignore
+        # Default scenario: 20, 30, 40, 50 nodes
+        self.btn_run.clicked.connect(lambda: self.run_requested.emit([20, 30, 40, 50]))
+        layout.addWidget(self.btn_run)
         
     def set_loading(self, loading: bool):
         self.btn_run.setEnabled(not loading)
-        self.input_nodes.setEnabled(not loading)
-        self.header_frame.setEnabled(not loading)
-
+        self.btn_run.setText("Analiz Ediliyor..." if loading else "Analiz Et")
 
 class TestScenariosCard(QFrame):
-    """
-    Test senaryoları için genişleyebilir kart.
-    """
+    """Test senaryoları yükleme kartı."""
     load_requested = pyqtSignal()
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.is_expanded = False
-        self._setup_ui()
-        
-    def _setup_ui(self):
-        self.setObjectName("ScenariosCard")
         self.setStyleSheet("""
-            QFrame#ScenariosCard {
-                background-color: #1e293b; 
-                border-radius: 16px;
-                border: 1px solid #1f2937;
-            }
-            QFrame#ScenariosCard:hover {
+            QFrame {
+                background-color: #1e293b;
+                border-radius: 12px;
                 border: 1px solid #334155;
             }
         """)
+        self._setup_ui()
         
-        self.main_layout = QVBoxLayout(self)
-        self.main_layout.setSpacing(0)
-        self.main_layout.setContentsMargins(0, 0, 0, 0)
+    def _setup_ui(self):
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(15, 15, 15, 15)
         
-        # === HEADER (Always Visible) ===
-        self.header_frame = QFrame()
-        self.header_frame.setCursor(Qt.PointingHandCursor)
-        self.header_frame.mousePressEvent = self._toggle_expand
-        self.header_frame.setStyleSheet("background: transparent;")
+        icon = QLabel("📂")
+        icon.setStyleSheet("font-size: 16px;")
         
-        header_layout = QHBoxLayout(self.header_frame)
-        header_layout.setContentsMargins(15, 12, 15, 12)
-        header_layout.setSpacing(10)
+        info_layout = QVBoxLayout()
+        title = QLabel("Test Senaryoları")
+        title.setStyleSheet("color: white; font-weight: bold;")
+        desc = QLabel("JSON dosyasından yükle")
+        desc.setStyleSheet("color: #94a3b8; font-size: 10px;")
+        info_layout.addWidget(title)
+        info_layout.addWidget(desc)
         
-        # Icon ("stopwatch")
-        self.icon_label = QLabel("⏱")
-        self.icon_label.setStyleSheet("color: #a855f7; font-size: 18px;") # Purple
-        header_layout.addWidget(self.icon_label)
-        
-        # Title
-        self.title_lbl = QLabel("Test Senaryoları (S, D, B)")
-        self.title_lbl.setStyleSheet("color: #e2e8f0; font-weight: bold; font-size: 14px;")
-        header_layout.addWidget(self.title_lbl)
-        
-        header_layout.addStretch()
-        
-        # Arrow (Right >)
-        self.arrow_lbl = QLabel("›") 
-        self.arrow_lbl.setStyleSheet("color: #64748b; font-size: 20px; font-weight: bold;")
-        header_layout.addWidget(self.arrow_lbl)
-        
-        self.main_layout.addWidget(self.header_frame)
-        
-        # === CONTENT (Collapsible) ===
-        # === CONTENT (Collapsible) ===
-        self.content_frame = QFrame()
-        self.content_frame.setObjectName("ContentFrame")
-        self.content_frame.setStyleSheet("""
-            QFrame#ContentFrame {
-                background-color: rgba(0, 0, 0, 0.2);
-                border-bottom-left-radius: 16px;
-                border-bottom-right-radius: 16px;
-            }
-        """)
-        self.content_frame.setVisible(False)
-        
-        content_layout = QVBoxLayout(self.content_frame)
-        content_layout.setContentsMargins(15, 15, 15, 15)
-        content_layout.setSpacing(15)
-        
-        # Description
-        desc_lbl = QLabel("25 önceden tanımlanmış (S, D, B)\nkombinasyonu.")
-        desc_lbl.setWordWrap(True)
-        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 13px; line-height: 1.4;")
-        content_layout.addWidget(desc_lbl)
-        
-        # Load Button
-        self.btn_load = QPushButton("Test Senaryolarını\nYükle")
-        self.btn_load.setIcon(QIcon("")) # In case we want icon later, or remove this line
-        # Use text with clock icon if desired, or just text. Screenshot shows clock icon inside button left.
-        # "🕑 Test Senaryolarını Yükle"
-        self.btn_load.setText("🕑   Test Senaryolarını\n       Yükle") 
-        # Making it look like the screenshot (multiline text centered possibly, or just icon left)
-        # Screenshot: Icon left, Text centered/left.
-        # Let's use simple text for now or HTML.
-        
+        self.btn_load = QPushButton("Yükle")
         self.btn_load.setCursor(Qt.PointingHandCursor)
-        self.btn_load.setFixedHeight(45)
+        self.btn_load.setFixedSize(60, 30)
         self.btn_load.setStyleSheet("""
             QPushButton {
-                background-color: #a855f7; /* Purple 500 */
-                color: white;
-                font-weight: bold;
-                border-radius: 8px;
-                font-size: 14px;
-                border: none;
-                text-align: center;
+                background-color: #475569; color: white; font-weight: bold;
+                border-radius: 6px;
             }
-            QPushButton:hover {
-                background-color: #9333ea; /* Purple 600 */
-            }
-            QPushButton:pressed {
-                background-color: #7e22ce;
-            }
-            QPushButton:disabled {
-                background-color: #334155;
-                color: #64748b;
-            }
+            QPushButton:hover { background-color: #64748b; }
         """)
-        self.btn_load.clicked.connect(lambda: self.load_requested.emit())
-        content_layout.addWidget(self.btn_load)
+        self.btn_load.clicked.connect(self.load_requested.emit)
         
-        self.main_layout.addWidget(self.content_frame)
+        layout.addWidget(icon)
+        layout.addLayout(info_layout)
+        layout.addStretch()
+        layout.addWidget(self.btn_load)
         
-    def _toggle_expand(self, event=None):
-        self.is_expanded = not self.is_expanded
-        
-        if self.is_expanded:
-            self.content_frame.setVisible(True)
-            self.arrow_lbl.setText("⌄")
-            self.header_frame.setStyleSheet("background: transparent;")
-        else:
-            self.content_frame.setVisible(False)
-            self.arrow_lbl.setText("›")
-            self.header_frame.setStyleSheet("background: transparent; border-bottom: none;")
-            
     def set_loading(self, loading: bool):
         self.btn_load.setEnabled(not loading)
-        self.header_frame.setEnabled(not loading)
 
 
 class ExperimentsPanel(QWidget):
@@ -499,102 +482,108 @@ class ExperimentsPanel(QWidget):
     run_experiments_requested = pyqtSignal(int, int)
     run_scalability_requested = pyqtSignal(list)
     load_scenarios_requested = pyqtSignal()
+    compare_two_requested = pyqtSignal(str, str)
+    show_path_requested = pyqtSignal(list, str)
     
-    # deney paneli genislik ayarı
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedWidth(400)
+        self.comparison_dialog = None
         self._setup_ui()
         
     def _setup_ui(self):
         self.setObjectName("ExperimentsPanel")
         self.setAttribute(Qt.WA_StyledBackground, True)
         
-        # Card Styling
         self.setStyleSheet("""
             QWidget#ExperimentsPanel {
                 background-color: #111827;
-                border-radius: 16px;
                 border: 1px solid #1f2937;
+                border-radius: 16px;
             }
         """)
         
-        layout = QVBoxLayout(self)
-        layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 20)
+        main_layout = QVBoxLayout(self)
+        main_layout.setSpacing(16)
+        main_layout.setContentsMargins(15, 15, 15, 15)
         
-        # === HEADER ===
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(10)
+        # 1. ALGORITHM COMPARISON CARD (Launcher)
+        self.compare_card = AlgorithmComparisonCard()
+        self.compare_card.open_requested.connect(self._open_comparison_dialog)
+        main_layout.addWidget(self.compare_card)
         
-        icon_label = QLabel("⚗") # Beaker icon substitute
+        # 2. EXPERIMENTS SECTION (Collapsible)
+        # Header
+        self.exp_header = QFrame()
+        self.exp_header.setCursor(Qt.PointingHandCursor)
+        self.exp_header.mousePressEvent = self._toggle_experiments
+        self.exp_header.setStyleSheet("""
+            QFrame {
+                background-color: transparent;
+                border-radius: 8px;
+            }
+            QFrame:hover {
+                background-color: #1e293b;
+            }
+        """)
+        header_layout = QHBoxLayout(self.exp_header)
+        header_layout.setContentsMargins(5, 5, 5, 5)
+        
+        icon_label = QLabel("⚗") 
         icon_label.setStyleSheet("color: #0ea5e9; font-size: 20px;")
         header_layout.addWidget(icon_label)
         
         title_label = QLabel("Deney Düzeneği")
-        title_label.setStyleSheet("color: #0ea5e9; font-weight: bold; font-size: 18px;")
+        title_label.setStyleSheet("color: #0ea5e9; font-weight: bold; font-size: 16px;")
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
-        layout.addLayout(header_layout)
         
-        # === BUTTONS ===
-        # 1. Preset Experiments (Collapsible Card)
+        self.exp_arrow = QLabel("⌄") # Initially expanded
+        self.exp_arrow.setStyleSheet("color: #64748b; font-size: 18px; font-weight: bold;")
+        header_layout.addWidget(self.exp_arrow)
+        
+        main_layout.addWidget(self.exp_header)
+        
+        # Experiments Content Container
+        self.experiments_container = QWidget()
+        exp_layout = QVBoxLayout(self.experiments_container)
+        exp_layout.setContentsMargins(0, 0, 0, 0)
+        exp_layout.setSpacing(12)
+        
+        # -- Existing Cards --
         self.preset_card = PresetExperimentCard()
-        # Initial request: 25 tests, value from spinbox
         self.preset_card.run_requested.connect(lambda count: self.run_experiments_requested.emit(25, count))
-        layout.addWidget(self.preset_card)
+        exp_layout.addWidget(self.preset_card)
         
-        # 2. Scalability Analysis (Collapsible Card)
         self.scale_card = ScalabilityAnalysisCard()
         self.scale_card.run_requested.connect(self.run_scalability_requested.emit)
-        layout.addWidget(self.scale_card)
+        exp_layout.addWidget(self.scale_card)
         
-        # 3. Test Scenarios (Collapsible Card)
         self.scenarios_card = TestScenariosCard()
         self.scenarios_card.load_requested.connect(self.load_scenarios_requested.emit)
-        layout.addWidget(self.scenarios_card)
+        exp_layout.addWidget(self.scenarios_card)
         
-        # === REQUIREMENTS BOX ===
-        req_box = QFrame()
-        req_box.setStyleSheet("""
-            QFrame {
-                background-color: #1e293b;
-                border-radius: 8px;
-            }
-        """)
-        req_layout = QVBoxLayout(req_box)
-        req_layout.setContentsMargins(20, 20, 20, 20)
-        req_layout.setSpacing(12)
+        # -- Requirements Box --
+        self.req_box = QFrame()
+        self.req_box.setStyleSheet("background-color: #1e293b; border-radius: 8px;")
+        req_layout = QVBoxLayout(self.req_box)
+        req_layout.setContentsMargins(15, 15, 15, 15)
+        req_layout.setSpacing(10)
         
-        # Header Row
-        header_row = QHBoxLayout()
-        header_row.setSpacing(10)
-        header_row.setContentsMargins(0, 0, 0, 5)
+        h_row = QHBoxLayout()
+        icon_ok = QLabel("✓")
+        icon_ok.setAlignment(Qt.AlignCenter)
+        icon_ok.setFixedSize(24, 24)
+        icon_ok.setStyleSheet("color: #10b981; border: 2px solid #10b981; border-radius: 12px; font-weight: bold;")
+        h_row.addWidget(icon_ok)
         
-        # Use a specific icon or styled label matching the image (Green circled check)
-        # Using a unicode char or styled label for now. Image shows a green circle with check.
-        icon_lbl = QLabel("✓") 
-        icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setFixedSize(24, 24)
-        icon_lbl.setStyleSheet("""
-            QLabel {
-                color: #10b981; 
-                border: 2px solid #10b981; 
-                border-radius: 12px; 
-                font-weight: bold; 
-                font-size: 14px;
-                background: transparent;
-            }
-        """)
-        header_row.addWidget(icon_lbl)
+        lbl_title = QLabel("Test Gereksinimleri:")
+        lbl_title.setStyleSheet("color: #cbd5e1; font-weight: bold; font-size: 13px;")
+        h_row.addWidget(lbl_title)
         
-        req_title = QLabel("Test Gereksinimleri:")
-        req_title.setStyleSheet("color: #cbd5e1; font-weight: bold; font-size: 18px;")
-        header_row.addWidget(req_title)
-        header_row.addStretch()
-        
-        req_layout.addLayout(header_row)
+        h_row.addStretch()
+        req_layout.addLayout(h_row)
         
         requirements = [
             "20+ farklı (S, D, B) örneği ✓",
@@ -604,34 +593,47 @@ class ExperimentsPanel(QWidget):
             "Ölçeklenebilirlik (opsiyonel) ✓"
         ]
         
-        # Indented list container
-        list_layout = QVBoxLayout()
-        list_layout.setContentsMargins(34, 0, 0, 0) # Identation matching icon width + spacing
-        list_layout.setSpacing(8)
-        
         for req in requirements:
-            # Bullet point style dot
-            item_row = QHBoxLayout()
-            item_row.setSpacing(8)
-            
-            dot = QLabel("•")
-            dot.setStyleSheet("color: #64748b; font-size: 14px;")
-            dot.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            
-            lbl = QLabel(req)
-            lbl.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 500;")
-            
-            item_row.addWidget(dot)
-            item_row.addWidget(lbl)
-            item_row.addStretch()
-            
-            list_layout.addLayout(item_row)
-            
-        req_layout.addLayout(list_layout)
-        
-        layout.addWidget(req_box)
-        layout.addStretch()
+             r_row = QHBoxLayout()
+             dot = QLabel("•")
+             dot.setStyleSheet("color: #64748b;")
+             r_row.addWidget(dot)
+             lbl = QLabel(req)
+             lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
+             r_row.addWidget(lbl)
+             r_row.addStretch()
+             req_layout.addLayout(r_row)
 
+        exp_layout.addWidget(self.req_box)
+        
+        main_layout.addWidget(self.experiments_container)
+        main_layout.addStretch()
+        
+        self.is_experiments_expanded = True
+
+    def _toggle_experiments(self, event=None):
+        self.is_experiments_expanded = not self.is_experiments_expanded
+        self.experiments_container.setVisible(self.is_experiments_expanded)
+        self.exp_arrow.setText("⌄" if self.is_experiments_expanded else "›")
+
+    def _open_comparison_dialog(self):
+        """Kıyaslama penceresini aç."""
+        if self.comparison_dialog is None:
+            self.comparison_dialog = AlgorithmComparisonDialog(self)
+            self.comparison_dialog.compare_requested.connect(self.compare_two_requested.emit)
+            self.comparison_dialog.show_path_requested.connect(self.show_path_requested.emit)
+        
+        self.comparison_dialog.show()
+        self.comparison_dialog.raise_()
+        self.comparison_dialog.activateWindow()
+
+    def update_comparison_results(self, algo1_name, cost1, time1, path1, algo2_name, cost2, time2, path2, source: int, dest: int):
+        """Kıyaslama sonuçlarını açık olan pencereye gönder."""
+        if self.comparison_dialog and self.comparison_dialog.isVisible():
+            r1 = ComparisonResult(algo1_name, 0, time1, weighted_cost=cost1, path=path1)
+            r2 = ComparisonResult(algo2_name, 0, time2, weighted_cost=cost2, path=path2)
+            self.comparison_dialog.update_results(r1, r2, source, dest)
+            
     def _create_action_button(self, icon, text, bg_color):
         btn = QPushButton()
         btn.setStyleSheet(f"""
@@ -672,7 +674,7 @@ class ExperimentsPanel(QWidget):
         self.scenarios_card.set_loading(loading)
 
     def set_progress(self, current, total):
-        pass # Optional: update progress bar if added
+        pass
 
     def set_finished(self, summary):
-        pass # Optional: show summary dialog
+        pass

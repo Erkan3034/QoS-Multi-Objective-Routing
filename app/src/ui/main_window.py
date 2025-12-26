@@ -114,19 +114,27 @@ class ComparisonWorker(QThread):
     progress = pyqtSignal(int, int)  # current, total
     error = pyqtSignal(str)
     
-    def __init__(self, graph, source, dest, weights):
+    def __init__(self, graph, source, dest, weights, target_algorithms: Optional[List[str]] = None):
         super().__init__()
         self.graph = graph
         self.source = source
         self.dest = dest
         self.weights = weights
+        self.target_algorithms = target_algorithms
     
     def run(self):
         try:
             results = []
-            total = len(ALGORITHMS)
             
-            for i, (key, (name, AlgoClass)) in enumerate(ALGORITHMS.items()):
+            # Filter algorithms if specific targets requested
+            if self.target_algorithms:
+                algo_items = {k: v for k, v in ALGORITHMS.items() if k in self.target_algorithms}
+            else:
+                algo_items = ALGORITHMS
+                
+            total = len(algo_items)
+            
+            for i, (key, (name, AlgoClass)) in enumerate(algo_items.items()):
                 self.progress.emit(i + 1, total)
                 try:
                     algo = AlgoClass(graph=self.graph)
@@ -467,6 +475,8 @@ class MainWindow(QMainWindow):
         self.experiments_panel.run_experiments_requested.connect(self._on_run_experiments)
         self.experiments_panel.run_scalability_requested.connect(self._on_run_scalability_analysis)
         self.experiments_panel.load_scenarios_requested.connect(self._on_load_test_scenarios)
+        self.experiments_panel.compare_two_requested.connect(self._on_compare_two_algorithms)
+        self.experiments_panel.show_path_requested.connect(self._on_show_path_requested)
         
         # Graph widget
         self.graph_widget.node_clicked.connect(self._on_node_clicked)
@@ -478,6 +488,53 @@ class MainWindow(QMainWindow):
         # ve sistem mevcut kaynak/hedef için yeniden optimizasyon yapar.
         # ====================================================================
         self.graph_widget.edge_broken.connect(self._on_edge_broken)
+
+    def _on_compare_two_algorithms(self, algo1: str, algo2: str):
+        """İki algoritmayı kıyasla."""
+        if not self._check_graph(): return
+        
+        # Parametreleri al
+        source = self.control_panel.spin_source.value()
+        dest = self.control_panel.spin_dest.value()
+        if source == dest:
+            QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
+            return
+            
+        weights = self.control_panel._get_weights()
+        if not weights:
+            QMessageBox.warning(self, "Uyarı", "Ağırlıklar eksik.")
+            return
+
+        self.control_panel.set_loading(True)
+        self.status_bar.showMessage(f"Kıyaslanıyor: {algo1} vs {algo2}...")
+        
+        self.current_worker = ComparisonWorker(
+            self.graph_service.graph, 
+            source, 
+            dest, 
+            weights,
+            target_algorithms=[algo1, algo2]
+        )
+        self.current_worker.finished.connect(self._on_two_algo_comparison_finished)
+        self.current_worker.error.connect(self._on_error)
+        # self.current_worker.progress.connect(...) 
+        self.current_worker.start()
+
+    def _on_two_algo_comparison_finished(self, results: List[OptimizationResult]):
+        self.control_panel.set_loading(False)
+        self.status_bar.showMessage("Kıyaslama tamamlandı!", 3000)
+        
+        if len(results) >= 2:
+            r1 = results[0]
+            r2 = results[1]
+            self.experiments_panel.update_comparison_results(
+                r1.algorithm, r1.weighted_cost, r1.computation_time_ms,
+                r2.algorithm, r2.weighted_cost, r2.computation_time_ms
+            )
+            # İsteğe bağlı olarak sonuçları ana panele de yansıtabiliriz ama 
+            # kullanıcı sadece kartta görmek istemiş gibi.
+        else:
+             QMessageBox.warning(self, "Hata", "Sonuçlar alınamadı.")
         
     def _on_generate_graph(self, n_nodes: int, prob: float, seed: int):
         self.control_panel.set_loading(True)
@@ -783,6 +840,30 @@ class MainWindow(QMainWindow):
         else:
             self.status_bar.showMessage(f"🔴 Link {u}-{v} kırıldı! Yeni yol hesaplamak için optimize edin.", 5000)
             
+    def _on_two_algo_comparison_finished(self, results: List[OptimizationResult]):
+        self.control_panel.set_loading(False)
+        self.status_bar.showMessage("Kıyaslama tamamlandı!", 3000)
+        
+        if len(results) >= 2:
+            r1 = results[0]
+            r2 = results[1]
+            
+            # Retrieve source/dest from the worker
+            source = self.current_worker.source if hasattr(self.current_worker, 'source') else self.control_panel.spin_source.value()
+            dest = self.current_worker.dest if hasattr(self.current_worker, 'dest') else self.control_panel.spin_dest.value()
+            
+            self.experiments_panel.update_comparison_results(
+                r1.algorithm, r1.weighted_cost, r1.computation_time_ms, r1.path,
+                r2.algorithm, r2.weighted_cost, r2.computation_time_ms, r2.path,
+                source, dest
+            )
+        else:
+             QMessageBox.warning(self, "Hata", "Sonuçlar alınamadı.")
+
+    def _on_show_path_requested(self, path: List[int], color: str):
+        """Kullanıcının seçtiği algoritma yolunu grafikte göster."""
+        self.graph_widget.set_path(path, color)
+
     def _on_reset(self):
         """Projeyi tamamen sıfırla."""
         # 1. Stop any running threads

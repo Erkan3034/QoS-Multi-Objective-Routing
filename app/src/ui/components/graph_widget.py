@@ -129,21 +129,25 @@ class GraphWidget(QWidget):
         # Plot Widget
         self.plot_widget = pg.PlotWidget()
         self.plot_widget.setBackground(None) # Make plot background transparent to show gradient below
+        self.plot_widget.setAttribute(Qt.WA_TranslucentBackground, True) # Force translucency
+        self.plot_widget.setStyleSheet("background: transparent;") # CSS transparency
         self.plot_widget.setFrameShape(QFrame.NoFrame) # Remove internal border
         
-        # Set gradient on the parent GraphWidget via stylesheet
-        self.setStyleSheet("""
-            QWidget#GraphWidget {
-                background: qradialgradient(
-                    cx: 0.5, cy: 0.5, radius: 0.8,
-                    fx: 0.5, fy: 0.5,
-                    stop: 0 #1e293b, /* Slate-800 center (Glow) */
-                    stop: 0.5 #0f172a, /* Slate-900 mid */
-                    stop: 1 #020617  /* Slate-950 edge (Dark) */
-                );
+        # Determine path to background image
+        import os
+        # Correction: One level up from 'components' is 'ui', where 'resources' resides.
+        bg_path = os.path.join(os.path.dirname(__file__), "..", "resources", "images", "graph_bg.png")
+        bg_path = os.path.abspath(bg_path).replace("\\", "/")
+        
+        # Set gradient/image on the parent GraphWidget via stylesheet
+        # Using border-image to stretch content
+    
+        self.setStyleSheet(f"""
+            QWidget#GraphWidget {{
+                border-image: url("{bg_path}") 0 0 0 0 stretch stretch;
                 border: 1px solid #1f2937;
                 border-radius: 16px;
-            }
+            }}
         """)
         
         # Set size policy for proper expansion

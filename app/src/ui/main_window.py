@@ -287,17 +287,28 @@ class MainWindow(QMainWindow):
         """UI kurulumu."""
         self.setWindowTitle("QoS Multi-Objective Routing")
         self.setMinimumSize(1280, 800)
-        self.setStyleSheet("""
-            QMainWindow {
-                background-color: #0f172a;
-            }
-            QWidget {
+        # Determine path to background image
+        import os
+        # __file__ is app/src/ui/main_window.py
+        bg_path = os.path.join(os.path.dirname(__file__), "resources", "images", "graph_bg.png")
+        bg_path = os.path.abspath(bg_path).replace("\\", "/")
+        
+        self.setStyleSheet(f"""
+            QMainWindow {{
+                border-image: url("{bg_path}") 0 0 0 0 stretch stretch;
+            }}
+            QWidget {{
                 font-family: 'Segoe UI', Arial, sans-serif;
-            }
+            }}
+            /* Make key containers transparent/semi-transparent */
+            QWidget#CentralWidget {{
+                background: transparent;
+            }}
         """)
         
         # Central widget
         central = QWidget()
+        central.setObjectName("CentralWidget")
         self.setCentralWidget(central)
         
         # Main vertical layout (Header - Content - Footer)

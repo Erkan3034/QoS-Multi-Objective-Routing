@@ -14,8 +14,9 @@ class LegendWidget(QWidget):
         
         self.setStyleSheet("""
             QWidget#LegendWidget {
-                background-color: transparent;
-                border: none;
+                background-color: rgba(15, 23, 42, 0.85);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
             }
             QLabel {
                 color: #e2e8f0;
@@ -33,8 +34,8 @@ class LegendWidget(QWidget):
         
     def _setup_ui(self):
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 8, 16, 8) # Increased padding for robustness
-        layout.setSpacing(16) # Increased spacing
+        layout.setContentsMargins(12, 6, 12, 6) # Reduced padding
+        layout.setSpacing(16)
         layout.setSizeConstraint(QLayout.SetFixedSize) # Force widget to fit content
         
         # Kaynak (Circle with S)

@@ -43,8 +43,18 @@ class ConvergenceWidget(QWidget):
     def _setup_ui(self):
         """Initialize UI components."""
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setContentsMargins(15, 15, 15, 15) # Add padding
         layout.setSpacing(4)
+        
+        # Semi-transparent background
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("""
+            QWidget {
+                background-color: rgba(15, 23, 42, 0.90);
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
+            }
+        """)
         
         if not MATPLOTLIB_AVAILABLE:
             # Graceful degradation: show message if matplotlib is missing

@@ -138,9 +138,9 @@ class ResultsPanel(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet("""
             QWidget#ResultsPanel {
-                background-color: #111827; 
-                border-radius: 16px;
-                border: 1px solid #1f2937;
+                background-color: rgba(15, 23, 42, 0.90);
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
             }
             QScrollArea {
                 background: transparent;
@@ -235,7 +235,7 @@ class ResultsPanel(QWidget):
         self.path_group = QWidget()
         self.path_group.setObjectName("PathGroup")
         self.path_group.setStyleSheet("""
-            QWidget#PathGroup { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; }
+            QWidget#PathGroup { background-color: rgba(30, 41, 59, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 12px; }
         """)
         path_layout = QVBoxLayout(self.path_group)
         path_layout.setContentsMargins(12, 8, 12, 8)

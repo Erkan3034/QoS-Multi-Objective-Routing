@@ -14,10 +14,11 @@ class HeaderWidget(QWidget):
         
         # Arka plan rengi
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet("""
             HeaderWidget {
-                background-color: #0f172a;
-                border-bottom: 1px solid #1e293b;
+                background-color: rgba(15, 23, 42, 0.85); /* Slate-900 85% opacity */
+                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
             }
         """)
         

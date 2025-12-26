@@ -13,9 +13,14 @@ class FooterWidget(QWidget):
         self.setAutoFillBackground(True)
         
         # Arka plan rengi
-        palette = self.palette()
-        palette.setColor(QPalette.Window, QColor("#111827"))
-        self.setPalette(palette)
+        # Arka plan rengi (Transparent for background visibility)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("""
+            FooterWidget {
+                background-color: rgba(17, 24, 39, 0.85);
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """)
         
         self._setup_ui()
         

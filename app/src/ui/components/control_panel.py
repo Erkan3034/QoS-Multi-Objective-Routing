@@ -39,6 +39,17 @@ class ControlPanel(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 8)  # Bottom margin to ensure reset button is fully visible
         main_layout.setSpacing(8)  # Spacing between scroll area and reset button
         
+        # Semi-transparent background for panel legibility
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet("""
+            QWidget#ControlPanel {
+                background-color: rgba(15, 23, 42, 0.90); /* Slate-900 with 90% opacity */
+                border-radius: 12px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+        """)
+        self.setObjectName("ControlPanel")
+        
         # Scroll Area
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)

@@ -497,9 +497,9 @@ class ExperimentsPanel(QWidget):
         
         self.setStyleSheet("""
             QWidget#ExperimentsPanel {
-                background-color: #111827;
-                border: 1px solid #1f2937;
-                border-radius: 16px;
+                background-color: rgba(15, 23, 42, 0.90); /* Slate-900 90% opacity */
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                border-radius: 12px;
             }
         """)
         

@@ -359,8 +359,8 @@ class MainWindow(QMainWindow):
         
         # Right Panel Container (Scrollable Sidebar) - ~20% width
         right_scroll = QScrollArea()
-        right_scroll.setMinimumWidth(320)
-        right_scroll.setMaximumWidth(360)
+        right_scroll.setMinimumWidth(400)
+        right_scroll.setMaximumWidth(450)
         right_scroll.setWidgetResizable(True)
         right_scroll.setFrameShape(QFrame.NoFrame)
         right_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)

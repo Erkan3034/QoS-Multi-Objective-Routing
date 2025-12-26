@@ -500,9 +500,10 @@ class ExperimentsPanel(QWidget):
     run_scalability_requested = pyqtSignal(list)
     load_scenarios_requested = pyqtSignal()
     
+    # deney paneli genislik ayarı
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(320)
+        self.setFixedWidth(400)
         self._setup_ui()
         
     def _setup_ui(self):
@@ -531,7 +532,7 @@ class ExperimentsPanel(QWidget):
         header_layout.addWidget(icon_label)
         
         title_label = QLabel("Deney Düzeneği")
-        title_label.setStyleSheet("color: #0ea5e9; font-weight: bold; font-size: 16px;")
+        title_label.setStyleSheet("color: #0ea5e9; font-weight: bold; font-size: 18px;")
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
@@ -589,7 +590,7 @@ class ExperimentsPanel(QWidget):
         header_row.addWidget(icon_lbl)
         
         req_title = QLabel("Test Gereksinimleri:")
-        req_title.setStyleSheet("color: #cbd5e1; font-weight: bold; font-size: 13px;")
+        req_title.setStyleSheet("color: #cbd5e1; font-weight: bold; font-size: 18px;")
         header_row.addWidget(req_title)
         header_row.addStretch()
         

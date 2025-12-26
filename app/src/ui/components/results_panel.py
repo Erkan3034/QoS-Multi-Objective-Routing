@@ -4,13 +4,23 @@ Sonuçlar Paneli Widget - Optimizasyon sonuçlarını gösterir
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QGridLayout,
-    QScrollArea
+    QScrollArea, QSizePolicy
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont, QPixmap
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 import os
+
+# Matplotlib Imports
+try:
+    import matplotlib
+    matplotlib.use('Qt5Agg')
+    from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
+    from matplotlib.figure import Figure
+    MATPLOTLIB_AVAILABLE = True
+except ImportError:
+    MATPLOTLIB_AVAILABLE = False
 
 @dataclass
 class OptimizationResult:
@@ -32,8 +42,8 @@ class ComparisonRow(QWidget):
         
     def _setup_ui(self, rank: int, result: OptimizationResult):
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setSpacing(6)
         
         is_winner = (rank == 1)
         
@@ -49,82 +59,67 @@ class ComparisonRow(QWidget):
         else:
              self.setStyleSheet("""
                 QWidget {
-                    background-color: transparent;
-                    border: none;
+                    background-color: #1e293b; /* slate-800 */
+                    border: 1px solid #334155;
+                    border-radius: 12px;
                 }
             """)
         
-        # === Header: Rank + Dot + Name + Trophy + Time ===
+        # === Header: Rank + Dot + Name + Time ===
         header = QHBoxLayout()
         header.setSpacing(8)
         
-        # Dot Color based on algo
-        colors = {
-            "Genetic": "#22c55e", "AntColony": "#eab308", 
-            "ParticleSwarm": "#3b82f6", "SimulatedAnnealing": "#ef4444", # Red for SA matching image
-            "SARSA": "#ec4899", "QLearning": "#6366f1"
-        }
-        color = colors.get(result.algorithm, "#94a3b8")
-        
-        # Dot
-        lbl_dot = QLabel("●")
-        lbl_dot.setStyleSheet(f"color: {color}; font-size: 14px; border: none; background: transparent;")
-        header.addWidget(lbl_dot)
+        # Rank Circle
+        lbl_rank = QLabel(str(rank))
+        lbl_rank.setFixedSize(20, 20)
+        lbl_rank.setAlignment(Qt.AlignCenter)
+        rank_bg = "#10b981" if is_winner else "#475569"
+        lbl_rank.setStyleSheet(f"""
+            background-color: {rank_bg}; 
+            color: white; 
+            border-radius: 10px; 
+            font-size: 11px; 
+            font-weight: bold;
+            border: none;
+        """)
+        header.addWidget(lbl_rank)
         
         # Name
-        lbl_name = QLabel(f"{rank}. {result.algorithm}")
-        lbl_name.setStyleSheet(f"color: white; font-weight: bold; font-size: 14px; border: none; background: transparent;")
+        lbl_name = QLabel(f"{result.algorithm}")
+        lbl_name.setStyleSheet(f"color: white; font-weight: bold; font-size: 13px; border: none; background: transparent;")
         header.addWidget(lbl_name)
         
-        # Trophy icon if rank 1
-        if is_winner:
-            lbl_trophy = QLabel("🏆")
-            lbl_trophy.setStyleSheet("font-size: 14px; border: none; background: transparent;")
-            header.addWidget(lbl_trophy)
-            
         header.addStretch()
         
         # Time
         lbl_time = QLabel(f"{result.computation_time_ms:.0f}ms")
-        lbl_time.setStyleSheet("color: #94a3b8; font-size: 12px; font-weight: 500; border: none; background: transparent;")
+        lbl_time.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500; border: none; background: transparent;")
         header.addWidget(lbl_time)
         
         layout.addLayout(header)
         
         # === Metrics Row ===
-        # Grid layout for perfect alignment: Maliyet, Gecikme, Guvenilirlik, Hop
         metrics_layout = QHBoxLayout()
-        # metrics_layout.setSpacing(16)
+        metrics_layout.setSpacing(10)
         
         # Helper for columns
-        def add_metric_col(label_text, val_text, val_color):
-            col = QVBoxLayout()
-            col.setSpacing(2)
+        def add_metric(label, val, color):
+            box = QHBoxLayout()
+            box.setSpacing(4)
+            l = QLabel(label)
+            l.setStyleSheet("color: #64748b; font-size: 10px; border: none; background: transparent;")
+            v = QLabel(val)
+            v.setStyleSheet(f"color: {color}; font-size: 11px; font-weight: bold; border: none; background: transparent;")
+            box.addWidget(l)
+            box.addWidget(v)
+            metrics_layout.addLayout(box)
             
-            l = QLabel(label_text)
-            l.setStyleSheet("color: #64748b; font-size: 11px; font-weight: 500; border: none; background: transparent;")
-            l.setAlignment(Qt.AlignCenter)
-            
-            v = QLabel(val_text)
-            v.setStyleSheet(f"color: {val_color}; font-size: 12px; font-weight: bold; border: none; background: transparent;")
-            v.setAlignment(Qt.AlignCenter)
-            
-            col.addWidget(l)
-            col.addWidget(v)
-            metrics_layout.addLayout(col)
-            
-        # 1. Maliyet (Cost) - White
-        add_metric_col("Maliyet", f"{result.weighted_cost:.4f}", "white")
+        # Metrics
+        add_metric("Maliyet:", f"{result.weighted_cost:.4f}", "white")
+        add_metric("Gecikme:", f"{result.total_delay:.0f}ms", "#3b82f6")
+        add_metric("Hop:", f"{len(result.path)-1}", "#f59e0b")
         
-        # 2. Gecikme (Delay) - Blue
-        add_metric_col("Gecikme", f"{result.total_delay:.1f}ms", "#3b82f6")
-        
-        # 3. Guvenilirlik - Green
-        add_metric_col("Güvenilirlik", f"{result.total_reliability*100:.2f}%", "#22c55e")
-        
-        # 4. Hop - Orange
-        add_metric_col("Hop", f"{len(result.path)-1}", "#f59e0b")
-        
+        metrics_layout.addStretch()
         layout.addLayout(metrics_layout)
 
 
@@ -133,391 +128,326 @@ class ResultsPanel(QWidget):
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(320)
+        self.setFixedWidth(400) # Increased width as requested
         self._setup_ui()
     
     def _setup_ui(self):
         """UI kurulumu."""
-        # Main Panel Styling (Card View)
+        # Main Panel Styling
         self.setObjectName("ResultsPanel")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        
         self.setStyleSheet("""
             QWidget#ResultsPanel {
-                background-color: #111827; /* gray-900/slate-900 (darker) */
+                background-color: #111827; 
                 border-radius: 16px;
                 border: 1px solid #1f2937;
+            }
+            QScrollArea {
+                background: transparent;
+                border: none;
+            }
+            QScrollBar:vertical {
+                background: #0f172a;
+                width: 8px;
+                border-radius: 4px;
+            }
+            QScrollBar::handle:vertical {
+                background: #334155;
+                border-radius: 4px;
             }
         """)
         
         layout = QVBoxLayout(self)
-        layout.setSpacing(10)  # Slightly reduced spacing to give more room to convergence plot
-        layout.setContentsMargins(14, 14, 14, 14)  # Slightly reduced margins
+        layout.setSpacing(10)
+        layout.setContentsMargins(14, 14, 14, 14)
         
-        # === HEADER (Sonuçlar + Algo Tag) ===
+        # === HEADER ===
         header_layout = QHBoxLayout()
         self.header_title = QLabel("Sonuçlar")
         self.header_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #f8fafc;")
         header_layout.addWidget(self.header_title)
         
+        # Collapse/Expand Button (Visible only in comparison mode)
+        from PyQt5.QtWidgets import QToolButton
+        self.btn_toggle_compare = QToolButton()
+        self.btn_toggle_compare.setText("➖") 
+        self.btn_toggle_compare.setFixedSize(24, 24)
+        self.btn_toggle_compare.setCursor(Qt.PointingHandCursor)
+        self.btn_toggle_compare.setStyleSheet("""
+            QToolButton {
+                background-color: #334155; 
+                color: white; 
+                border-radius: 4px;
+                border: none;
+                font-weight: bold;
+            }
+            QToolButton:hover {
+                background-color: #475569;
+            }
+        """)
+        self.btn_toggle_compare.setToolTip("Listeyi Gizle/Göster")
+        self.btn_toggle_compare.clicked.connect(self._toggle_comparison_view)
+        self.btn_toggle_compare.hide()
+        header_layout.addWidget(self.btn_toggle_compare)
+        
         header_layout.addStretch()
         
-        # Best Algo Badge (For Comparison View)
-        self.lbl_best_algo = QLabel("Genetic")
-        self.lbl_best_algo.setAlignment(Qt.AlignCenter)
-        self.lbl_best_algo.setFixedHeight(24)
-        self.lbl_best_algo.setStyleSheet("""
-            background-color: #059669; /* emerald-600 */
-            color: white; 
-            padding: 0 12px; 
-            border-radius: 12px; 
-            font-size: 11px; 
-            font-weight: bold;
-            border: 1px solid #047857;
-        """)
-        self.lbl_best_algo.hide()
-        header_layout.addWidget(self.lbl_best_algo)
-        
-        # Pill shaped tag
+        # Single Result Tags
         self.algo_tag = QLabel("Genetic")
         self.algo_tag.setAlignment(Qt.AlignCenter)
         self.algo_tag.setFixedHeight(24)
         self.algo_tag.setStyleSheet("""
-            background-color: #581c87; /* purple-900 */
-            color: #d8b4fe; /* purple-200 */
-            padding: 0 12px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: bold;
-            border: 1px solid #7e22ce;
+            background-color: #581c87; color: #d8b4fe; padding: 0 12px;
+            border-radius: 12px; font-size: 12px; font-weight: bold; border: 1px solid #7e22ce;
         """)
         self.algo_tag.hide()
         header_layout.addWidget(self.algo_tag)
-        
         layout.addLayout(header_layout)
         
-        # === PATH SECTION ===
-        # === PATH SECTION (Sub-Card) ===
+        # === SINGLE RESULT VIEWS ===
+        self._setup_single_result_views(layout)
+
+        # === COMPARISON VIEW ===
+        self._setup_comparison_view(layout)
+        
+        self.compare_widget.hide()
+        
+        # === FOOTER ===
+        self._setup_footer(layout)
+        
+        self._setup_placeholder()
+        layout.addStretch()
+
+    def _toggle_comparison_view(self):
+        """Karşılaştırma listesini aç/kapat."""
+        # compare_widget layout: [ChartContainer, ListContainer]
+        if hasattr(self, 'compare_list_container'):
+            is_visible = self.compare_list_container.isVisible()
+            self.compare_list_container.setVisible(not is_visible)
+            
+            if not is_visible:
+                self.btn_toggle_compare.setText("➖")
+            else:
+                self.btn_toggle_compare.setText("➕")
+
+    def _setup_single_result_views(self, parent_layout):
+        # Path
         self.path_group = QWidget()
         self.path_group.setObjectName("PathGroup")
         self.path_group.setStyleSheet("""
-            QWidget#PathGroup {
-                background-color: #1e293b; /* slate-800 */
-                border: 1px solid #334155;
-                border-radius: 12px;
-            }
+            QWidget#PathGroup { background-color: #1e293b; border: 1px solid #334155; border-radius: 12px; }
         """)
         path_layout = QVBoxLayout(self.path_group)
         path_layout.setContentsMargins(12, 8, 12, 8)
-        path_layout.setSpacing(4)
         
-        # Title "Bulunan Yol"
-        # Title "Bulunan Yol"
-        title_row = QHBoxLayout()
-        title_row.setSpacing(6)
-        
-        lbl_icon = QLabel()
-        path_icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icons", "icon_path.svg")
-        if os.path.exists(path_icon_path):
-            pixmap = QPixmap(path_icon_path)
-            lbl_icon.setPixmap(pixmap.scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            lbl_icon.setText("🔗") 
-            lbl_icon.setStyleSheet("color: #94a3b8; font-size: 14px;")
-            
-        title_row.addWidget(lbl_icon)
-
         self.lbl_path_title = QLabel("Bulunan Yol")
         self.lbl_path_title.setStyleSheet("color: #94a3b8; font-size: 13px; font-weight: 500;")
-        title_row.addWidget(self.lbl_path_title)
+        path_layout.addWidget(self.lbl_path_title)
         
-        title_row.addStretch()
-        path_layout.addLayout(title_row)
-        
-        # Path string "3 hop: 2 -> 45 -> 105 -> 249"
         self.lbl_path_value = QLabel("-")
         self.lbl_path_value.setWordWrap(True)
-        self.lbl_path_value.setTextInteractionFlags(Qt.TextSelectableByMouse)  # Allow text selection
         self.lbl_path_value.setStyleSheet("color: #f1f5f9; font-size: 15px; font-weight: bold; font-family: 'Consolas', monospace;")
         path_layout.addWidget(self.lbl_path_value)
         
-        layout.addWidget(self.path_group)
-        self.path_group.hide() # Hidden initially
+        parent_layout.addWidget(self.path_group)
+        self.path_group.hide()
         
-        # === METRICS GRID ===
+        # Metrics Grid
         self.metrics_container = QWidget()
         self.metrics_grid = QGridLayout(self.metrics_container)
         self.metrics_grid.setContentsMargins(0, 0, 0, 0)
-        self.metrics_grid.setSpacing(16)
+        self.metrics_grid.setSpacing(12) # Reduced spacing
         
-        # 1. Delay (Top Left) - Blue
         self.card_delay = self._create_metric_card("icon_delay.svg", "Toplam Gecikme", "0.00 ms", "#3b82f6")
         self.metrics_grid.addWidget(self.card_delay, 0, 0)
-        
-        # 2. Reliability (Top Right) - Green
         self.card_rel = self._create_metric_card("icon_reliability.svg", "Güvenilirlik", "0.00 %", "#22c55e")
         self.metrics_grid.addWidget(self.card_rel, 0, 1)
-        
-        # 3. Resource (Bottom Left) - Yellow/Orange
         self.card_res = self._create_metric_card("icon_resource.svg", "Kaynak Maliyeti", "0.00", "#eab308")
         self.metrics_grid.addWidget(self.card_res, 1, 0)
-        
-        # 4. Weighted (Bottom Right) - Purple
-        # Use a better icon for cost/down trend if possible
         self.card_weighted = self._create_metric_card("icon_weighted.svg", "Ağırlıklı Maliyet", "0.0000", "#a855f7")
         self.metrics_grid.addWidget(self.card_weighted, 1, 1)
         
-        layout.addWidget(self.metrics_container)
-        
-        # === FOOTER (Computation Time) ===
-        # === FOOTER (Computation Time) ===
-        # Wrap footer in a container to toggle visibility
-        self.footer_container = QWidget()
-        footer_layout_main = QVBoxLayout(self.footer_container)
-        footer_layout_main.setContentsMargins(0, 0, 0, 0)
-        footer_layout_main.setSpacing(12) # Spacing between line and text
+        parent_layout.addWidget(self.metrics_container)
 
-        footer_line = QFrame()
-        footer_line.setFrameShape(QFrame.HLine)
-        footer_line.setStyleSheet("color: #334155;")
-        footer_layout_main.addWidget(footer_line)
-
-        footer_row_layout = QHBoxLayout()
-        footer_row_layout.setSpacing(6)
-        
-        # Icon
-        lbl_time_icon = QLabel()
-        time_icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icons", "icon_time.svg")
-        if os.path.exists(time_icon_path):
-            pixmap = QPixmap(time_icon_path)
-            lbl_time_icon.setPixmap(pixmap.scaled(14, 14, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            lbl_time_icon.setText("⏱")
-            lbl_time_icon.setStyleSheet("color: #94a3b8; font-size: 13px;")
-        footer_row_layout.addWidget(lbl_time_icon)
-        
-        lbl_time_title = QLabel("Hesaplama Süresi")
-        lbl_time_title.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500;")
-        footer_row_layout.addWidget(lbl_time_title)
-        
-        footer_row_layout.addStretch()
-        
-        self.lbl_time_value = QLabel("0.00 ms")
-        self.lbl_time_value.setStyleSheet("color: #f1f5f9; font-size: 14px; font-weight: bold;")
-        footer_row_layout.addWidget(self.lbl_time_value)
-        
-        footer_layout_main.addLayout(footer_row_layout)
-        
-        layout.addWidget(self.footer_container)
-        self.footer_container.hide() # Hidden initially
-
-        # === COMPARISON LIST (Initially Hidden) ===
+    def _setup_comparison_view(self, parent_layout):
         self.compare_widget = QWidget()
-        compare_layout = QVBoxLayout(self.compare_widget)
-        compare_layout.setContentsMargins(0, 0, 0, 0)
+        layout = QVBoxLayout(self.compare_widget)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
         
-        # Removed inner header to use main panel header instead
+        # 1. Comparison Chart
+        if MATPLOTLIB_AVAILABLE:
+            self.chart_frame = QFrame()
+            self.chart_frame.setStyleSheet("background-color: #1e293b; border-radius: 8px; border: 1px solid #334155;")
+            self.chart_frame.setFixedHeight(120) 
+            chart_layout = QVBoxLayout(self.chart_frame)
+            chart_layout.setContentsMargins(0, 5, 0, 0)
+            
+            self.figure = Figure(figsize=(3, 1.5), facecolor='#1e293b')
+            self.canvas = FigureCanvas(self.figure)
+            self.canvas.setStyleSheet("background: transparent;")
+            chart_layout.addWidget(self.canvas)
+            layout.addWidget(self.chart_frame)
+            
+        # 2. List Container (No Scroll Area here, use parent scroll)
+        self.compare_list_container = QWidget()
+        layout.addWidget(self.compare_list_container)
         
-        self.compare_container = QWidget()
-        self.compare_list_layout = QVBoxLayout(self.compare_container)
-        self.compare_list_layout.setSpacing(10)
-        self.compare_list_layout.setContentsMargins(0, 0, 0, 0) # No padding needed
+        self.compare_list_layout = QVBoxLayout(self.compare_list_container)
+        self.compare_list_layout.setSpacing(8)
+        self.compare_list_layout.setContentsMargins(0, 0, 0, 0)
         self.compare_list_layout.addStretch()
         
-        compare_layout.addWidget(self.compare_container)
+        parent_layout.addWidget(self.compare_widget)
+
+    def _setup_footer(self, parent_layout):
+        self.footer_container = QWidget()
+        layout = QHBoxLayout(self.footer_container)
+        layout.setContentsMargins(0, 10, 0, 0)
         
-        layout.addWidget(self.compare_widget)
-        self.compare_widget.hide()
-        
-        self._setup_placeholder()
+        lbl_title = QLabel("Hesaplama Süresi:")
+        lbl_title.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        layout.addWidget(lbl_title)
         
         layout.addStretch()
+        
+        self.lbl_time_value = QLabel("0.00 ms")
+        self.lbl_time_value.setStyleSheet("color: #f1f5f9; font-size: 13px; font-weight: bold;")
+        layout.addWidget(self.lbl_time_value)
+        
+        parent_layout.addWidget(self.footer_container)
+        self.footer_container.hide()
 
     def _setup_placeholder(self):
         self.placeholder = QWidget()
         layout = QVBoxLayout(self.placeholder)
         layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(10)
         
-        # Icon
-        icon_label = QLabel("⮆") # Abstract path icon
-        icon_label.setAlignment(Qt.AlignCenter)
-        icon_label.setStyleSheet("font-size: 48px; color: #334155;")
-        layout.addWidget(icon_label)
+        icon = QLabel("⮆") 
+        icon.setStyleSheet("font-size: 48px; color: #334155;")
+        layout.addWidget(icon)
         
-        # Text
-        text_label = QLabel("Optimizasyon sonuçları\nburada görünecek")
-        text_label.setAlignment(Qt.AlignCenter)
-        text_label.setStyleSheet("color: #64748b; font-size: 14px;")
-        layout.addWidget(text_label)
+        text = QLabel("Optimizasyon sonuçları\nburada görünecek")
+        text.setAlignment(Qt.AlignCenter)
+        text.setStyleSheet("color: #64748b; font-size: 14px;")
+        layout.addWidget(text)
         
         self.layout().addWidget(self.placeholder)
-        self.metrics_container.hide() # Ensure metrics are hidden initially
+        self.metrics_container.hide() # Initially hidden
 
-    def _create_metric_card(self, icon, title, value, title_color):
-        """Metrik kartı oluştur (Styled Card)."""
+    def _create_metric_card(self, icon, title, value, color):
         card = QWidget()
-        card.setStyleSheet("""
-            QWidget {
-                background-color: #1e293b; /* slate-800 */
-                border: 1px solid #334155;
-                border-radius: 12px;
-            }
-        """)
-        
+        card.setStyleSheet(f"background-color: #1e293b; border: 1px solid #334155; border-radius: 12px;")
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(4, 4, 4, 4)
-        lay.setSpacing(1)
-        
-        # Title Row
-        title_row = QHBoxLayout()
-        title_row.setSpacing(4)
-        
-        # Icon
-        lbl_icon = QLabel()
-        lbl_icon.setStyleSheet("border: none; background: transparent;") # Reset style for icon
-        icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icons", icon)
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path)
-            lbl_icon.setPixmap(pixmap.scaled(14, 14, Qt.KeepAspectRatio, Qt.SmoothTransformation))
-        else:
-            lbl_icon.setText("?")
-            lbl_icon.setStyleSheet(f"color: {title_color}; font-size: 12px; border: none; background: transparent;")
-            
-        title_row.addWidget(lbl_icon)
+        lay.setContentsMargins(8, 8, 8, 8)
         
         lbl_title = QLabel(title)
-        lbl_title.setStyleSheet(f"color: {title_color}; font-size: 10px; font-weight: 700; border: none; background: transparent;")
-        title_row.addWidget(lbl_title)
+        lbl_title.setStyleSheet(f"color: {color}; font-size: 10px; font-weight: bold;")
+        lay.addWidget(lbl_title)
         
-        title_row.addStretch()
-        lay.addLayout(title_row)
-        
-        # Value
-        lbl_value = QLabel(value)
-        lbl_value.setObjectName("ValueLabel") # Helper for finding later
-        lbl_value.setWordWrap(True)  # Enable word wrap for large numbers
-        lbl_value.setAlignment(Qt.AlignCenter)  # Center align for better appearance
-        lbl_value.setStyleSheet("color: #f1f5f9; font-size: 16px; font-weight: bold; margin-top: 0px; border: none; background: transparent;")
-        lay.addWidget(lbl_value)
-        
+        lbl_val = QLabel(value)
+        lbl_val.setObjectName("ValueLabel")
+        lbl_val.setStyleSheet("color: white; font-size: 14px; font-weight: bold;")
+        lay.addWidget(lbl_val)
         return card
 
-    def _update_card(self, card_widget, value):
-        """Kart değerini güncelle."""
-        # Find the value label inside the card widget
-        # The structure is Card -> QVBoxLayout -> [TitleLayout, ValueLabel]
-        # We can findChild by type or iterate. Since we set ObjectName, try findChild.
-        lbl_value = card_widget.findChild(QLabel, "ValueLabel")
-        if lbl_value:
-            lbl_value.setText(str(value))
+    def _update_card(self, card, value):
+        lbl = card.findChild(QLabel, "ValueLabel")
+        if lbl: lbl.setText(str(value))
+
+    def _update_chart(self, results: List[OptimizationResult]):
+        if not MATPLOTLIB_AVAILABLE: return
+        
+        self.figure.clear()
+        ax = self.figure.add_subplot(111, facecolor='#1e293b')
+        
+        # Prepare Data (Top 3 or 5 to keep it clean?) Show all 6.
+        # Shorten names
+        names = [r.algorithm.replace("Algorithm", "").replace("Optimization", "").strip()[:5] for r in results]
+        costs = [r.weighted_cost for r in results]
+        colors = ['#22c55e', '#eab308', '#3b82f6', '#ef4444', '#ec4899', '#6366f1']
+        
+        bars = ax.bar(names, costs, color=colors[:len(results)])
+        
+        ax.set_title("Maliyet Karşılaştırması", color='#94a3b8', fontsize=9, pad=2)
+        ax.tick_params(axis='x', colors='#64748b', labelsize=7)
+        ax.tick_params(axis='y', colors='#64748b', labelsize=7)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+        ax.spines['bottom'].set_color('#334155')
+        ax.spines['left'].set_visible(False)
+        ax.grid(axis='y', alpha=0.1, linestyle='--')
+        
+        self.figure.tight_layout()
+        self.canvas.draw()
 
     def show_single_result(self, result: OptimizationResult):
-        """Tek sonucu göster."""
-        if hasattr(self, 'placeholder'):
-            self.placeholder.hide()
-            
+        if hasattr(self, 'placeholder'): self.placeholder.hide()
         self.compare_widget.hide()
         self.metrics_container.show()
-        self.path_group.show() # Show Path
-        self.footer_container.show() # Show Footer
+        self.path_group.show()
+        self.footer_container.show()
         
-        self.lbl_path_title.show()
-        self.lbl_path_value.show()
+        # Hide toggle button in single view
+        self.btn_toggle_compare.hide()
         
-        # Reset Header
         self.header_title.setText("Sonuçlar")
-        self.lbl_best_algo.hide()
-        
-        # Update details
         self.algo_tag.setText(result.algorithm)
         self.algo_tag.show()
         
-        # Path
-        if not result.path:
-            self.lbl_path_title.setText("🔗 Yol Bulunamadı")
-            self.lbl_path_value.setText("-")
-            return
-
-        hops = len(result.path) - 1
-        
-        # [UX] Highlight Direct Connections
-        if hops == 1:
-            self.lbl_path_title.setText(f"Bulunan Yol ({hops} hop) - [DOĞRUDAN BAĞLANTI]")
-            self.lbl_path_title.setStyleSheet("color: #4CAF50; font-size: 11px; font-weight: 500;") # Green for direct
+        self.lbl_path_title.setText(f"Bulunan Yol ({len(result.path)-1} hop)")
+        if len(result.path) > 10:
+             self.lbl_path_value.setText(f"{result.path[0]} → ... → {result.path[-1]}")
         else:
-            self.lbl_path_title.setText(f"Bulunan Yol ({hops} hop)")
-            self.lbl_path_title.setStyleSheet("color: #94a3b8; font-size: 11px; font-weight: 500;") # Default color
-        
-        if len(result.path) > 5:
-            path_str = f"{result.path[0]} → ... → {result.path[-1]}"
-        else:
-            path_str = " → ".join(map(str, result.path))
-            
-        self.lbl_path_value.setText(path_str)
-        
-        # Metrics
+             self.lbl_path_value.setText(" → ".join(map(str, result.path)))
+             
         self._update_card(self.card_delay, f"{result.total_delay:.2f} ms")
-        self._update_card(self.card_rel, f"{result.total_reliability * 100:.2f} %")
+        self._update_card(self.card_rel, f"{result.total_reliability*100:.2f} %")
         self._update_card(self.card_res, f"{result.resource_cost:.2f}")
         self._update_card(self.card_weighted, f"{result.weighted_cost:.4f}")
-        
         self.lbl_time_value.setText(f"{result.computation_time_ms:.2f} ms")
 
     def show_comparison(self, results: List[OptimizationResult]):
-        """Karşılaştırma sonuçlarını liste olarak göster."""
-        if hasattr(self, 'placeholder'):
-            self.placeholder.hide()
-            
+        if hasattr(self, 'placeholder'): self.placeholder.hide()
         self.metrics_container.hide()
-        self.lbl_path_title.hide()
-        self.lbl_path_value.hide()
+        self.path_group.hide()
         self.algo_tag.hide()
         
-        # Update Header
-        self.header_title.setText("Karşılaştırma Sonuçları")
-        self.path_group.hide() # Hide Path
-        self.footer_container.show() # Show Footer (for total algorithms count)
+        # Show toggle button in comparison view
+        self.btn_toggle_compare.show()
+        self.btn_toggle_compare.setText("➖") # Reset to expanded state
+        if hasattr(self, 'compare_list_container'):
+             self.compare_list_container.show()
         
+        self.header_title.setText("Karşılaştırma")
         self.compare_widget.show()
+        self.footer_container.show()
         
-        # Clear previous items (except stretch at end)
-        while self.compare_list_layout.count() > 1:
-            child = self.compare_list_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-                
         # Sort by cost
         results.sort(key=lambda x: x.weighted_cost)
         
-        # Update Best Badge
-        if results:
-            algo_name = results[0].algorithm.replace(" Algorithm", "").replace("Algorithm", "").strip()
-            self.lbl_best_algo.setText(f"{algo_name}")
-            self.lbl_best_algo.show()
+        # Update Chart
+        self._update_chart(results)
         
-        # Add new items
+        # Clear list
+        while self.compare_list_layout.count() > 1:
+            child = self.compare_list_layout.takeAt(0)
+            if child.widget(): child.widget().deleteLater()
+            
+        # Add Rows
         for i, res in enumerate(results):
-             row = ComparisonRow(i + 1, res)
-             self.compare_list_layout.insertWidget(i, row)
-             
+            row = ComparisonRow(i+1, res)
+            self.compare_list_layout.insertWidget(i, row)
+            
         self.lbl_time_value.setText(f"{len(results)} algoritma")
 
     def clear(self):
-        """Temizle."""
-        if hasattr(self, 'placeholder'):
-            self.placeholder.show()
-            self.metrics_container.hide()
-            self.path_group.hide()
-            self.footer_container.hide()
-            self.compare_widget.hide()
-            
+        if hasattr(self, 'placeholder'): self.placeholder.show()
+        self.metrics_container.hide()
+        self.path_group.hide()
+        self.footer_container.hide()
+        self.compare_widget.hide()
         self.algo_tag.hide()
-        self.lbl_path_value.setText("-")
-        self._update_card(self.card_delay, "-")
-        self._update_card(self.card_rel, "-")
-        self._update_card(self.card_res, "-")
-        self._update_card(self.card_weighted, "-")
-        self.lbl_time_value.setText("")
+        self.btn_toggle_compare.hide()
 
 

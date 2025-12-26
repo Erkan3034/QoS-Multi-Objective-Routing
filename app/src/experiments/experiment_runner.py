@@ -5,6 +5,9 @@ from typing import List, Dict, Any
 from src.algorithms.genetic_algorithm import GeneticAlgorithm
 from src.algorithms.aco import AntColonyOptimization
 from src.algorithms.pso import ParticleSwarmOptimization
+from src.algorithms.simulated_annealing import SimulatedAnnealing
+from src.algorithms.q_learning import QLearning
+from src.algorithms.sarsa import SARSA
 from src.experiments.test_cases import TestCase, BandwidthConstraintChecker
 from src.services.metrics_service import MetricsService
 
@@ -24,7 +27,7 @@ class ExperimentRunner:
         """Arayüz tarafından çağrılan ana deney metodu."""
         start_total = time.time()
         
-        algorithms = ["GA", "ACO", "PSO"]
+        algorithms = ["GA", "ACO", "PSO", "SA", "QL", "SARSA"]
         total_steps = len(algorithms) * len(test_cases)
         current_step = 0
         
@@ -66,8 +69,6 @@ class ExperimentRunner:
                             best_cost_for_alg = res['weighted_cost']
 
                 # Case stats (for this algorithm)
-                # Success if at least one run was successful? Or all? 
-                # Usually we count individual runs for stats.
                 successful_runs = [r for r in case_runs if r['success']]
                 alg_success_count += len(successful_runs)
                 
@@ -77,14 +78,17 @@ class ExperimentRunner:
                 # Sum costs and times
                 if successful_runs:
                     alg_total_cost += sum(r['weighted_cost'] for r in successful_runs)
-                    alg_total_time += sum(r['time'] for r in list(case_runs)) # Average time includes failures? Usually yes.
+                    alg_total_time += sum(r['time'] for r in list(case_runs))
                 else:
                     alg_total_time += sum(r['time'] for r in case_runs)
 
                 current_step += 1
-                if self.progress_callback:
-                    msg = f"{alg_name} - Senaryo {case.id}/{len(test_cases)}"
-                    self.progress_callback(current_step, total_steps, msg)
+                
+                # [OPTIMIZATION] Update progress only once per test case per algorithm
+                # to prevent UI freezing due to signal flooding.
+                if self.progress_callback and (current_step % 5 == 0 or current_step == total_steps):
+                     msg = f"{alg_name} - Senaryo {case.id}/{len(test_cases)}"
+                     self.progress_callback(current_step, total_steps, msg)
 
             # Calculate algorithm averages
             n_samples = len(test_cases) * self.n_repeats
@@ -125,33 +129,47 @@ class ExperimentRunner:
         path = []
         
         try:
+            # Common arguments for all algorithms
+            # All algorithms now support bandwidth_demand thanks to recent updates
+            run_args = {
+                "source": case.source,
+                "destination": case.destination,
+                "weights": case.weights,
+                "bandwidth_demand": case.bandwidth_requirement
+            }
+
             if alg_name == "GA":
-                alg = GeneticAlgorithm(self.graph, use_standard_metrics=True)
-                result = alg.optimize(
-                    source=case.source, 
-                    destination=case.destination, 
-                    weights=case.weights,
-                    bandwidth_demand=case.bandwidth_requirement
-                )
+                alg = GeneticAlgorithm(self.graph)
+                result = alg.optimize(**run_args)
                 path = result.path
                 
             elif alg_name == "ACO":
                 alg = AntColonyOptimization(self.graph)
-                result = alg.optimize(
-                    source=case.source, 
-                    destination=case.destination, 
-                    weights=case.weights
-                )
+                result = alg.optimize(**run_args)
                 path = result.path
                 
-            else: # PSO
+            elif alg_name == "PSO":
                 alg = ParticleSwarmOptimization(self.graph)
-                result = alg.optimize(
-                    source=case.source, 
-                    destination=case.destination, 
-                    weights=case.weights
-                )
+                result = alg.optimize(**run_args)
                 path = result.path
+                
+            elif alg_name == "SA":
+                alg = SimulatedAnnealing(self.graph)
+                result = alg.optimize(**run_args)
+                path = result.path
+                
+            elif alg_name == "QL":
+                alg = QLearning(self.graph)
+                result = alg.optimize(**run_args)
+                path = result.path
+                
+            elif alg_name == "SARSA":
+                alg = SARSA(self.graph)
+                result = alg.optimize(**run_args)
+                path = result.path
+            
+            else:
+                raise ValueError(f"Unknown algorithm: {alg_name}")
             
             end_ms = (time.time() - start) * 1000
             

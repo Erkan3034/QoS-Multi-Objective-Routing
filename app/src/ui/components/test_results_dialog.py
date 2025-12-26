@@ -1,11 +1,13 @@
 
+
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, 
     QTableWidgetItem, QHeaderView, QTabWidget, QWidget, 
-    QFrame, QPushButton, QScrollArea
+    QFrame, QPushButton, QScrollArea, QFileDialog, QMessageBox
 )
 from PyQt5.QtCore import Qt
 from PyQt5.QtGui import QColor, QFont
+import json
 
 class TestResultsDialog(QDialog):
     """
@@ -20,6 +22,10 @@ class TestResultsDialog(QDialog):
         self.result_data = result_data
         self.setWindowTitle("Detaylı Deney Sonuçları")
         self.setMinimumSize(1000, 700)
+        self._setup_style()
+        self._setup_ui()
+
+    def _setup_style(self):
         self.setStyleSheet("""
             QDialog {
                 background-color: #0f172a;
@@ -69,8 +75,6 @@ class TestResultsDialog(QDialog):
             }
         """)
 
-        self._setup_ui()
-
     def _setup_ui(self):
         layout = QVBoxLayout(self)
         layout.setSpacing(20)
@@ -89,8 +93,26 @@ class TestResultsDialog(QDialog):
         
         layout.addWidget(tabs)
         
-        # 3. Footer Actions
+        # 3. Footer
+        layout.addLayout(self._create_footer_actions())
+
+    def _create_footer_actions(self):
+        """Alt buton grubu (Export & Close)."""
         footer_layout = QHBoxLayout()
+        
+        # EXPORT BUTTONS
+        btn_json = QPushButton("💾 JSON Olarak Kaydet")
+        btn_json.setCursor(Qt.PointingHandCursor)
+        btn_json.setStyleSheet(self._action_btn_style("#3b82f6"))
+        btn_json.clicked.connect(self._on_export_json)
+        
+        btn_csv = QPushButton("📊 CSV Olarak Kaydet") 
+        btn_csv.setCursor(Qt.PointingHandCursor)
+        btn_csv.setStyleSheet(self._action_btn_style("#10b981"))
+        btn_csv.clicked.connect(self._on_export_csv)
+        
+        footer_layout.addWidget(btn_json)
+        footer_layout.addWidget(btn_csv)
         footer_layout.addStretch()
         
         close_btn = QPushButton("Kapat")
@@ -99,18 +121,77 @@ class TestResultsDialog(QDialog):
             QPushButton {
                 background-color: #334155;
                 color: white;
-                padding: 8px 20px;
+                padding: 8px 24px;
                 border-radius: 6px;
                 font-weight: bold;
+                border: 1px solid #475569;
             }
             QPushButton:hover {
                 background-color: #475569;
+                border: 1px solid #94a3b8;
             }
         """)
         close_btn.clicked.connect(self.accept)
         footer_layout.addWidget(close_btn)
         
-        layout.addLayout(footer_layout)
+        return footer_layout
+
+    def _action_btn_style(self, color):
+        return f"""
+            QPushButton {{
+                background-color: transparent;
+                color: {color};
+                padding: 8px 16px;
+                border: 1px solid {color};
+                border-radius: 6px;
+                font-weight: bold;
+            }}
+            QPushButton:hover {{
+                background-color: {color};
+                color: white;
+            }}
+        """
+
+    def _on_export_json(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "JSON Olarak Kaydet", "", "JSON Files (*.json)"
+        )
+        if filename:
+            try:
+                with open(filename, 'w', encoding='utf-8') as f:
+                    json.dump(self.result_data, f, ensure_ascii=False, indent=2)
+                QMessageBox.information(self, "Başarılı", "Sonuçlar JSON olarak kaydedildi!")
+            except Exception as e:
+                QMessageBox.critical(self, "Hata", f"Kaydetme başarısız: {str(e)}")
+
+    def _on_export_csv(self):
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "CSV Olarak Kaydet", "", "CSV Files (*.csv)"
+        )
+        if filename:
+            try:
+                import csv
+                # utf-8-sig is required for Excel to properly recognize Turkish characters
+                with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.writer(f)
+                    # Header
+                    writer.writerow([
+                        "Algoritma", "Başarı Oranı", "Bant Genişliği Memnuniyeti", 
+                        "Ortalama Maliyet", "Ortalama Süre (ms)", "En İyi Maliyet"
+                    ])
+                    # Data
+                    for row in self.result_data.get("comparison_table", []):
+                        writer.writerow([
+                            row['algorithm'],
+                            f"{row['success_rate']:.4f}",
+                            f"{row['bandwidth_satisfaction_rate']:.4f}",
+                            f"{row['overall_avg_cost']:.4f}",
+                            f"{row['overall_avg_time_ms']:.2f}",
+                            f"{row['best_cost']:.4f}"
+                        ])
+                QMessageBox.information(self, "Başarılı", "Sonuçlar CSV olarak kaydedildi!")
+            except Exception as e:
+                QMessageBox.critical(self, "Hata", f"Kaydetme başarısız: {str(e)}")
 
     def _create_summary_tab(self) -> QWidget:
         widget = QWidget()

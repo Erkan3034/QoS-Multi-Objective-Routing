@@ -44,6 +44,12 @@ class PathParticle:
         return tuple(current_pos)
 
 
+class SafeScatterPlotItem(pg.ScatterPlotItem):
+    """Subclass to fix bug where PlotItem tries to call setFftMode on all items."""
+    def setFftMode(self, mode):
+        pass
+
+
 class GraphWidget(QWidget):
     """Performanslı graf görselleştirme widget'ı."""
     node_clicked = pyqtSignal(int)
@@ -697,9 +703,10 @@ class GraphWidget(QWidget):
         edge_y = np.array(edge_y, dtype=float)
         
         if len(edge_x) > 0:
+            # Subtle fiber-like edges
             self.edge_lines = self.plot_widget.plot(
                 edge_x, edge_y,
-                pen=pg.mkPen(color=(71, 85, 105, 50), width=0.8),
+                pen=pg.mkPen(color=(100, 116, 139, 40), width=1.0),
                 connect='finite'
             )
         else:
@@ -710,29 +717,56 @@ class GraphWidget(QWidget):
             self._draw_broken_edge(u, v)
         
         # Glow Items
-        self.source_glow = pg.ScatterPlotItem(
+        self.source_glow = SafeScatterPlotItem(
             size=50, brush=pg.mkBrush(34, 197, 94, 80),
             pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.source_glow)
         
-        self.dest_glow = pg.ScatterPlotItem(
+        self.dest_glow = SafeScatterPlotItem(
             size=50, brush=pg.mkBrush(239, 68, 68, 80),
             pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.dest_glow)
         
-        self.intermediate_glow = pg.ScatterPlotItem(
+        self.intermediate_glow = SafeScatterPlotItem(
             size=50, brush=pg.mkBrush(245, 158, 11, 80),
             pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.intermediate_glow)
         
-        # Nodes
-        self.node_scatter = pg.ScatterPlotItem(
-            pos=pos_array, size=10,
-            brush=pg.mkBrush(100, 116, 139, 200),
-            pen=pg.mkPen(None), hoverable=True, data=node_data
+        # Nodes - Real World Simulation Styling (2D)
+        degrees = dict(self.graph.degree())
+        max_degree = max(degrees.values()) if degrees else 1
+        min_degree = min(degrees.values()) if degrees else 1
+        
+        brushes = []
+        sizes = []
+        
+        for node in self.positions.keys():
+            # Degree centrality logic
+            deg = degrees.get(node, 0)
+            norm_deg = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
+            
+            # Size: Base 10 + up to 15 based on importance
+            size = 10 + (norm_deg * 15)
+            sizes.append(size)
+            
+            # Color: Gradient from Green (Edge) to Blue (Core)
+            r = int(34 + (59 - 34) * norm_deg)
+            g = int(197 + (130 - 197) * norm_deg)
+            b = int(94 + (246 - 94) * norm_deg)
+            alpha = int(200 + (55 * norm_deg))
+            
+            brushes.append(pg.mkBrush(r, g, b, alpha))
+
+        self.node_scatter = SafeScatterPlotItem(
+            pos=pos_array, 
+            size=sizes,
+            brush=brushes,
+            pen=pg.mkPen((15, 23, 42, 200), width=1), # Dark contour
+            hoverable=True, 
+            data=node_data
         )
         self.node_scatter.sigHovered.connect(self._on_node_hover)
         self.plot_widget.addItem(self.node_scatter)
@@ -748,25 +782,25 @@ class GraphWidget(QWidget):
             connect='finite'
         )
         
-        self.intermediate_scatter = pg.ScatterPlotItem(
+        self.intermediate_scatter = SafeScatterPlotItem(
             size=28, brush=pg.mkBrush(245, 158, 11, 255),
             pen=pg.mkPen('w', width=2), pxMode=True
         )
         self.plot_widget.addItem(self.intermediate_scatter)
         
-        self.source_scatter = pg.ScatterPlotItem(
+        self.source_scatter = SafeScatterPlotItem(
             size=45, brush=pg.mkBrush(34, 197, 94, 255),
             pen=pg.mkPen('w', width=3), pxMode=True
         )
         self.plot_widget.addItem(self.source_scatter)
         
-        self.dest_scatter = pg.ScatterPlotItem(
+        self.dest_scatter = SafeScatterPlotItem(
             size=45, brush=pg.mkBrush(239, 68, 68, 255),
             pen=pg.mkPen('w', width=3), pxMode=True
         )
         self.plot_widget.addItem(self.dest_scatter)
         
-        self.particle_scatter = pg.ScatterPlotItem(
+        self.particle_scatter = SafeScatterPlotItem(
             size=8, brush=pg.mkBrush(255, 255, 255, 255),
             pen=pg.mkPen(None), pxMode=True
         )

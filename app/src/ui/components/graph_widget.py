@@ -1,6 +1,4 @@
-"""
-Graf Görselleştirme Widget - PyQtGraph ile yüksek performanslı render
-"""
+""" Graf Görselleştirme Widget - PyQtGraph ile yüksek performanslı render """
 import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QPushButton, QLabel, QToolTip, QFrame
@@ -9,6 +7,13 @@ from PyQt5.QtGui import QColor, QCursor, QFont, QIcon
 from typing import Dict, List, Optional, Set, Tuple
 import networkx as nx
 import os
+
+try:
+    import pyqtgraph.opengl as gl
+    OPENGL_AVAILABLE = True
+except ImportError:
+    OPENGL_AVAILABLE = False
+
 
 class PathParticle:
     """Yol üzerinde hareket eden parçacık."""
@@ -23,49 +28,39 @@ class PathParticle:
         if self.position >= len(self.path_nodes) - 1:
             self.position = 0.0
         return self.get_coordinates()
-        
+    
     def get_coordinates(self):
         idx = int(self.position)
         next_idx = idx + 1
         if next_idx >= len(self.path_nodes):
-            next_idx = 0 # Should not happen with reset logic but safety first
-            
+            return self.positions[self.path_nodes[0]]
+        
         u = self.path_nodes[idx]
         v = self.path_nodes[next_idx]
-        
         pos_u = np.array(self.positions[u])
         pos_v = np.array(self.positions[v])
-        
         t = self.position - idx
         current_pos = pos_u + (pos_v - pos_u) * t
-        return current_pos[0], current_pos[1]
+        return tuple(current_pos)
+
 
 class GraphWidget(QWidget):
-    """
-    Performanslı graf görselleştirme widget'ı.
-    """
-    
+    """Performanslı graf görselleştirme widget'ı."""
     node_clicked = pyqtSignal(int)
-    # ========================================================================
-    # [CHAOS MONKEY FEATURE] Interactive Link Break
-    # ========================================================================
-    # Bu signal, kullanıcı bir edge'e sağ tıkladığında ve edge kırıldığında
-    # emit edilir. MainWindow bu signal'i dinleyerek otomatik olarak
-    # yeniden yönlendirme (re-optimization) tetikler.
-    # Parametreler: (u, v) - kırılan edge'in node ID'leri
-    # ========================================================================
     edge_broken = pyqtSignal(int, int)  # u, v - broken edge
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.is_3d_mode = False
         self.graph: Optional[nx.Graph] = None
-        self.positions: Dict[int, tuple] = {}
+        self.positions: Dict[int, tuple] = {}  # 2D positions
+        self.positions_3d: Dict[int, tuple] = {}  # 3D positions
         self.path: List[int] = []
-        self.path_color: str = '#f59e0b'  # Default amber-500
+        self.path_color: str = '#f59e0b'
         self.source: Optional[int] = None
         self.destination: Optional[int] = None
         
-        # Visual items
+        # Visual items (2D)
         self.node_scatter = None
         self.source_glow = None
         self.dest_glow = None
@@ -75,7 +70,20 @@ class GraphWidget(QWidget):
         self.dest_scatter = None
         self.intermediate_scatter = None
         self.path_lines = None
+        self.path_glow = None
         self.edge_lines = None
+        
+        # Visual items (3D)
+        self.view_3d = None
+        self.node_scatter_3d = None
+        self.edge_lines_3d = []  # List of edge items
+        self.path_lines_3d = None
+        self.path_glow_3d = None
+        self.particle_scatter_3d = None
+        self.source_scatter_3d = None
+        self.dest_scatter_3d = None
+        self.intermediate_scatter_3d = None
+        self.broken_edge_lines_3d = []
         
         # Labels
         self.text_items = []
@@ -92,56 +100,77 @@ class GraphWidget(QWidget):
         self.edge_tooltip = None
         self.edge_highlight_line = None
         
-        # ====================================================================
-        # [CHAOS MONKEY FEATURE] Broken Edges Tracking
-        # ====================================================================
-        # Kullanıcı sağ tıklayarak kırdığı edge'leri takip eder.
-        # - broken_edges: Kırılmış edge'lerin (u, v) tuple'larını tutar
-        # - broken_edge_lines: PyQtGraph'ın çizdiği görsel item'ları tutar
-        #   (clear() metodunda temizlenmesi için)
-        # 
-        # ÖNEMLİ: Edge kırıldığında NetworkX graph'tan da kaldırılır,
-        # ancak görsel olarak kırmızı kesikli çizgi olarak gösterilir.
-        # Bu sayede kullanıcı hangi linklerin kırıldığını görebilir.
-        # ====================================================================
+        # Broken edges tracking
         self.broken_edges: Set[Tuple[int, int]] = set()
-        self.broken_edge_lines = []  # Visual representation of broken edges
+        self.broken_edge_lines = []
         
         self._setup_ui()
-        self.clear() # Set initial state
+        self.clear()
     
     def _setup_ui(self):
         self.setObjectName("GraphWidget")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        
-        # Initial stylesheet empty - set in the block below to combine with gradient
         self.setStyleSheet("")
         
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(1, 1, 1, 1) # Small margin to show border/radius
-        # Note: If we want "padding" inside the card as per image, we can increase this
-        # But image shows graph taking mostly full space, maybe just rounded headers? 
-        # Actually image shows the nodes floating on the dark background. 
-        # A small margin ensures the plot content (which is rect) doesn't clip the rounded corners ugly.
         layout.setContentsMargins(6, 6, 6, 6)
         
-        # Plot Widget
-        self.plot_widget = pg.PlotWidget()
-        self.plot_widget.setBackground(None) # Make plot background transparent to show gradient below
-        self.plot_widget.setAttribute(Qt.WA_TranslucentBackground, True) # Force translucency
-        self.plot_widget.setStyleSheet("background: transparent;") # CSS transparency
-        self.plot_widget.setFrameShape(QFrame.NoFrame) # Remove internal border
+        # Stacked Layout
+        from PyQt5.QtWidgets import QStackedLayout
+        self.stack = QStackedLayout()
+        layout.addLayout(self.stack)
         
-        # Determine path to background image
-        import os
-        # Correction: One level up from 'components' is 'ui', where 'resources' resides.
+        # 1. 2D Plot Widget
+        self.plot_widget = pg.PlotWidget()
+        self.plot_widget.setBackground(None)
+        self.plot_widget.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.plot_widget.setStyleSheet("background: transparent;")
+        self.plot_widget.setFrameShape(QFrame.NoFrame)
+        self.stack.addWidget(self.plot_widget)
+        
+        # 2. 3D GL View Widget
+        if OPENGL_AVAILABLE:
+            self.view_3d = gl.GLViewWidget()
+            # Darker blue-gray background for better contrast
+            self.view_3d.setBackgroundColor(QColor(15, 20, 30, 255))
+            self.view_3d.setCameraPosition(distance=40, elevation=30, azimuth=45)
+            
+            # Grid with subtle color - draw behind everything
+            g = gl.GLGridItem()
+            g.scale(3, 3, 1)
+            g.setDepthValue(100)  # High value = draw behind
+            self.view_3d.addItem(g)
+            
+            self.container_3d = QWidget()
+            l3d = QVBoxLayout(self.container_3d)
+            l3d.setContentsMargins(0, 0, 0, 0)
+            l3d.addWidget(self.view_3d)
+            
+            # Close 3D Button
+            self.btn_close_3d = QPushButton("2D", self.container_3d)
+            self.btn_close_3d.setCursor(Qt.PointingHandCursor)
+            self.btn_close_3d.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(15, 23, 42, 0.8);
+                    color: white;
+                    font-weight: bold;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                    border-radius: 8px;
+                    padding: 8px 16px;
+                }
+                QPushButton:hover {
+                    background-color: rgba(30, 41, 59, 0.9);
+                }
+            """)
+            self.btn_close_3d.clicked.connect(lambda: self._toggle_3d_mode(False))
+            self.btn_close_3d.move(20, 20)
+            
+            self.stack.addWidget(self.container_3d)
+        
+        # Background image
         bg_path = os.path.join(os.path.dirname(__file__), "..", "resources", "images", "graph_bg.png")
         bg_path = os.path.abspath(bg_path).replace("\\", "/")
         
-        # Set gradient/image on the parent GraphWidget via stylesheet
-        # Using border-image to stretch content
-    
         self.setStyleSheet(f"""
             QWidget#GraphWidget {{
                 border-image: url("{bg_path}") 0 0 0 0 stretch stretch;
@@ -150,13 +179,10 @@ class GraphWidget(QWidget):
             }}
         """)
         
-        # Set size policy for proper expansion
         from PyQt5.QtWidgets import QSizePolicy
         self.plot_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        
         self.plot_widget.setAspectLocked(True)
-        # Enable grid for "Tactical Map" look - subtle
-        self.plot_widget.showGrid(x=True, y=True, alpha=0.08) 
+        self.plot_widget.showGrid(x=True, y=True, alpha=0.08)
         self.plot_widget.hideAxis('left')
         self.plot_widget.hideAxis('bottom')
         self.plot_widget.disableAutoRange()
@@ -165,22 +191,44 @@ class GraphWidget(QWidget):
         self.plot_widget.scene().sigMouseClicked.connect(self._on_mouse_clicked)
         self.plot_widget.scene().sigMouseMoved.connect(self._on_mouse_moved)
         
-        layout.addWidget(self.plot_widget)
-        
-        # Controls Container (Floating) - Top Right Vertical
+        # Controls Container
         self.controls_container = QWidget(self)
         self.controls_container.setStyleSheet("background: transparent;")
-        controls_layout = QVBoxLayout(self.controls_container) # Changed to Vertical
+        controls_layout = QVBoxLayout(self.controls_container)
         controls_layout.setSpacing(8)
         controls_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Buttons
         # Buttons
         self.btn_plus = self._create_btn("icon_plus.svg", self._zoom_in, "Yakınlaştır")
         self.btn_minus = self._create_btn("icon_minus.svg", self._zoom_out, "Uzaklaştır")
         self.btn_expand = self._create_btn("icon_expand.svg", self._fit_view, "Sığdır")
         self.btn_contract = self._create_btn("icon_contract.svg", self._reset_view, "Merkeze Odakla")
-        self.btn_tag = self._create_btn("icon_tag.svg", self.toggle_labels, "Etiketleri Göster/Gizle") # Tag
+        self.btn_tag = self._create_btn("icon_tag.svg", self.toggle_labels, "Etiketleri Göster/Gizle")
+        
+        if OPENGL_AVAILABLE:
+            self.btn_3d = QPushButton("3D")
+            self.btn_3d.setFixedSize(32, 32)
+            self.btn_3d.setCursor(Qt.PointingHandCursor)
+            self.btn_3d.setToolTip("2D/3D Görünüm Değiştir")
+            self.btn_3d.setStyleSheet("""
+                QPushButton {
+                    background-color: #1e293b;
+                    color: white;
+                    font-weight: bold;
+                    border: 1px solid #334155;
+                    border-radius: 8px;
+                }
+                QPushButton:hover {
+                    background-color: #334155;
+                }
+                QPushButton:checked {
+                    background-color: #3b82f6;
+                    border-color: #60a5fa;
+                }
+            """)
+            self.btn_3d.setCheckable(True)
+            self.btn_3d.clicked.connect(lambda: self._toggle_3d_mode(self.btn_3d.isChecked()))
+            controls_layout.addWidget(self.btn_3d)
         
         controls_layout.addWidget(self.btn_plus)
         controls_layout.addWidget(self.btn_minus)
@@ -190,42 +238,37 @@ class GraphWidget(QWidget):
         controls_layout.addStretch()
         
         self.controls_container.adjustSize()
-        
         self._setup_placeholder()
-
+    
     def _setup_placeholder(self):
         """Grafik boşken gösterilecek placeholder."""
         self.placeholder = QWidget(self)
         self.placeholder.setStyleSheet("background-color: transparent;")
-        
         layout = QVBoxLayout(self.placeholder)
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(20)
         
-        # Icon
         icon_label = QLabel("⚡")
         icon_label.setAlignment(Qt.AlignCenter)
         icon_label.setStyleSheet("""
             font-size: 64px;
-            color: #475569; /* slate-600 */
+            color: #475569;
             background-color: transparent;
             padding: 0px;
         """)
         layout.addWidget(icon_label, 0, Qt.AlignCenter)
         
-        # Text
         text_label = QLabel("Graf oluşturmak için \"Graf Oluştur\" butonuna tıklayın")
         text_label.setAlignment(Qt.AlignCenter)
         text_label.setStyleSheet("color: #64748b; font-size: 16px; font-weight: 500;")
         layout.addWidget(text_label)
         
         self.placeholder.hide()
-
+    
     def _reset_view(self):
-        """Reset zoom to default 1:1 scale (roughly) or center."""
-        # Just fit view for now, or could set specific range
+        """Reset zoom to default scale."""
         self._fit_view()
-
+    
     def _create_btn(self, icon_name, callback, tooltip):
         btn = QPushButton()
         btn.setFixedSize(32, 32)
@@ -233,17 +276,16 @@ class GraphWidget(QWidget):
         btn.setToolTip(tooltip)
         btn.setCursor(Qt.PointingHandCursor)
         
-        # Load Icon
         icon_path = os.path.join(os.path.dirname(__file__), "..", "resources", "icons", icon_name)
         if os.path.exists(icon_path):
             btn.setIcon(QIcon(icon_path))
             btn.setIconSize(QSize(18, 18))
         else:
             btn.setText("?")
-            
+        
         btn.setStyleSheet("""
             QPushButton {
-                background-color: #1e293b; /* slate-800 */
+                background-color: #1e293b;
                 border: 1px solid #334155;
                 border-radius: 8px;
             }
@@ -256,29 +298,30 @@ class GraphWidget(QWidget):
             }
         """)
         return btn
-
+    
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        # Position controls on the top right side
         if hasattr(self, 'controls_container'):
             self.controls_container.move(
                 self.width() - self.controls_container.width() - 20,
                 20
             )
-        
         if hasattr(self, 'placeholder'):
             self.placeholder.resize(self.size())
-
+        
+        # 3D close button position update
+        if hasattr(self, 'btn_close_3d') and self.is_3d_mode:
+            self.btn_close_3d.move(20, 20)
+    
     def set_graph(self, graph: nx.Graph, positions: Dict[int, tuple] = None):
         if hasattr(self, 'placeholder'):
             self.placeholder.hide()
-            self.plot_widget.show()
-            self.controls_container.show()
-            
-        self.graph = graph
+        self.plot_widget.show()
+        self.controls_container.show()
         
-        # Reset broken edges when new graph is loaded
+        self.graph = graph
         self.broken_edges.clear()
+        
         for line in self.broken_edge_lines:
             try:
                 self.plot_widget.removeItem(line)
@@ -286,6 +329,7 @@ class GraphWidget(QWidget):
                 pass
         self.broken_edge_lines.clear()
         
+        # Generate both 2D and 3D positions
         if positions:
             self.positions = positions
         else:
@@ -293,20 +337,306 @@ class GraphWidget(QWidget):
                 graph, seed=42, k=2/np.sqrt(graph.number_of_nodes())
             )
         
+        # Generate 3D positions
+        self._generate_3d_positions()
+        
         self._draw_graph()
         self._fit_view()
-
+    
+    def _generate_3d_positions(self):
+        """Generate 3D positions for the graph."""
+        if self.graph is None:
+            return
+        
+        pos_3d = nx.spring_layout(
+            self.graph, seed=42, dim=3, 
+            k=2.5/np.sqrt(self.graph.number_of_nodes())
+        )
+        
+        # Normalize Z to be above zero
+        z_values = [coords[2] for coords in pos_3d.values()]
+        min_z = min(z_values) if z_values else -1.0
+        
+        for node in pos_3d:
+            x, y, z = pos_3d[node]
+            new_z = (z - min_z) + 0.5
+            pos_3d[node] = (x, y, new_z)
+        
+        self.positions_3d = pos_3d
+    
+    def _toggle_3d_mode(self, checked):
+        """Toggle between 2D and 3D visualization."""
+        if not OPENGL_AVAILABLE or self.graph is None:
+            return
+        
+        self.is_3d_mode = checked
+        
+        # Sync button state without triggering signals
+        if hasattr(self, 'btn_3d'):
+            self.btn_3d.blockSignals(True)
+            self.btn_3d.setChecked(checked)
+            self.btn_3d.blockSignals(False)
+        
+        if self.is_3d_mode:
+            self.stack.setCurrentIndex(1)
+            
+            # Ensure 3D positions exist
+            if not self.positions_3d:
+                self._generate_3d_positions()
+            
+            self._draw_graph_3d()
+            self._update_path_display_3d()
+            
+            # Reinitialize particles for 3D
+            if self.path and len(self.path) >= 2:
+                self._init_particles()
+        else:
+            self.stack.setCurrentIndex(0)
+            
+            # Reinitialize particles for 2D
+            if self.path and len(self.path) >= 2:
+                self._init_particles()
+    
+    def _clear_3d_view(self):
+        """Clear all items from 3D view except grid."""
+        if not self.view_3d:
+            return
+        
+        items_to_remove = []
+        for item in self.view_3d.items:
+            if not isinstance(item, gl.GLGridItem):
+                items_to_remove.append(item)
+        
+        for item in items_to_remove:
+            self.view_3d.removeItem(item)
+        
+        # Clear references
+        self.node_scatter_3d = None
+        self.edge_lines_3d = []  # Now a list
+        self.path_lines_3d = None
+        self.path_glow_3d = None
+        self.particle_scatter_3d = None
+        self.source_scatter_3d = None
+        self.dest_scatter_3d = None
+        self.intermediate_scatter_3d = None
+        self.broken_edge_lines_3d = []
+    
+    def _draw_graph_3d(self):
+        """Render graph in 3D view."""
+        if not self.view_3d or self.graph is None:
+            return
+        
+        self._clear_3d_view()
+        
+        # Ensure 3D positions exist
+        if not self.positions_3d:
+            self._generate_3d_positions()
+        
+        # Prepare node data
+        pos_array = np.array([self.positions_3d[n] for n in self.graph.nodes()])
+        pos_array *= 10
+        
+        # Nodes
+        # Brighter slate color with higher alpha
+        c = np.array([150, 170, 200, 255]) / 255.0  # Lighter blue-gray
+        colors = np.tile(c, (len(pos_array), 1))
+        self.node_scatter_3d = gl.GLScatterPlotItem(
+            pos=pos_array,
+            color=colors,
+            size=12,  # Slightly larger
+            pxMode=True
+        )
+        self.node_scatter_3d.setGLOptions('opaque')  # Solid nodes
+        self.node_scatter_3d.setDepthValue(40)  # Behind edges
+        self.view_3d.addItem(self.node_scatter_3d)
+        
+        # Edges (non-broken) - BATCHED for performance
+        # Drawing each edge separately causes ~12000 OpenGL objects = LAG
+        # Instead, batch all edges into a single GLLinePlotItem
+        scale = np.array([10, 10, 10])
+        edge_pts = []
+        
+        for u, v in self.graph.edges():
+            if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
+                continue
+            
+            p1 = np.array(self.positions_3d[u]) * scale
+            p2 = np.array(self.positions_3d[v]) * scale
+            edge_pts.append(p1)
+            edge_pts.append(p2)
+        
+        if edge_pts:
+            edge_pts = np.array(edge_pts)
+            # Single batched line item - MUCH faster
+            edge_lines = gl.GLLinePlotItem(
+                pos=edge_pts,
+                color=(0.6, 0.65, 0.7, 0.7),  # Light gray
+                width=2.0,
+                mode='lines',
+                antialias=False
+            )
+            edge_lines.setGLOptions('translucent')
+            self.view_3d.addItem(edge_lines)
+            self.edge_lines_3d = [edge_lines]  # Store as list for compatibility
+        
+        # Draw broken edges in 3D
+        for u, v in self.broken_edges:
+            self._draw_broken_edge_3d(u, v)
+        
+        # Draw Source/Dest in 3D
+        if self.source is not None and self.source in self.positions_3d:
+            p = np.array(self.positions_3d[self.source]) * 10
+            self.source_scatter_3d = gl.GLScatterPlotItem(
+                pos=np.array([p]),
+                color=(0.2, 1.0, 0.4, 1.0),  # Bright green
+                size=35,  # Larger
+                pxMode=True
+            )
+            self.source_scatter_3d.setGLOptions('opaque')
+            self.source_scatter_3d.setDepthValue(5)  # Very front
+            self.view_3d.addItem(self.source_scatter_3d)
+        
+        if self.destination is not None and self.destination in self.positions_3d:
+            p = np.array(self.positions_3d[self.destination]) * 10
+            self.dest_scatter_3d = gl.GLScatterPlotItem(
+                pos=np.array([p]),
+                color=(1.0, 0.3, 0.3, 1.0),  # Bright red
+                size=35,  # Larger
+                pxMode=True
+            )
+            self.dest_scatter_3d.setGLOptions('opaque')
+            self.dest_scatter_3d.setDepthValue(5)  # Very front
+            self.view_3d.addItem(self.dest_scatter_3d)
+    
+    def _draw_broken_edge_3d(self, u: int, v: int):
+        """Draw a broken edge in 3D as red dashed line."""
+        if u not in self.positions_3d or v not in self.positions_3d:
+            return
+        
+        scale = np.array([10, 10, 10])
+        p1 = np.array(self.positions_3d[u]) * scale
+        p2 = np.array(self.positions_3d[v]) * scale
+        
+        # Create dashed line effect with multiple segments
+        pts = []
+        num_segments = 10
+        for i in range(num_segments):
+            if i % 2 == 0:  # Only draw every other segment
+                t1 = i / num_segments
+                t2 = (i + 0.5) / num_segments
+                pts.append(p1 + (p2 - p1) * t1)
+                pts.append(p1 + (p2 - p1) * t2)
+        
+        if pts:
+            broken_line = gl.GLLinePlotItem(
+                pos=np.array(pts),
+                color=(1.0, 0.2, 0.2, 1.0),  # Bright red, full opacity
+                width=3.0,  # Thicker
+                mode='lines',
+                antialias=True
+            )
+            broken_line.setGLOptions('opaque')
+            broken_line.setDepthValue(45)  # Between edges and nodes
+            self.view_3d.addItem(broken_line)
+            self.broken_edge_lines_3d.append(broken_line)
+    
+    def _update_path_display_3d(self):
+        """Render path in 3D."""
+        if not self.view_3d or not self.path or len(self.path) < 2:
+            return
+        
+        # Remove old path items
+        if self.path_lines_3d:
+            try:
+                self.view_3d.removeItem(self.path_lines_3d)
+            except:
+                pass
+        if self.path_glow_3d:
+            try:
+                self.view_3d.removeItem(self.path_glow_3d)
+            except:
+                pass
+        if self.intermediate_scatter_3d:
+            try:
+                self.view_3d.removeItem(self.intermediate_scatter_3d)
+            except:
+                pass
+        
+        # Ensure 3D positions exist
+        if not self.positions_3d:
+            return
+        
+        # Path Lines
+        pts = []
+        scale = np.array([10, 10, 10])
+        for i in range(len(self.path) - 1):
+            u = self.path[i]
+            v = self.path[i+1]
+            if u in self.positions_3d and v in self.positions_3d:
+                pts.append(np.array(self.positions_3d[u]) * scale)
+                pts.append(np.array(self.positions_3d[v]) * scale)
+        
+        if pts:
+            c = QColor(self.path_color)
+            color = (c.redF(), c.greenF(), c.blueF(), 1.0)
+            self.path_lines_3d = gl.GLLinePlotItem(
+                pos=np.array(pts),
+                color=color,
+                width=5.0,  # Thicker path
+                mode='lines',
+                antialias=True
+            )
+            self.path_lines_3d.setGLOptions('opaque')
+            self.path_lines_3d.setDepthValue(10)  # In front of everything
+            self.view_3d.addItem(self.path_lines_3d)
+            
+            # Glow effect - wider, semi-transparent
+            glow_color = (c.redF(), c.greenF(), c.blueF(), 0.5)
+            self.path_glow_3d = gl.GLLinePlotItem(
+                pos=np.array(pts),
+                color=glow_color,
+                width=10.0,
+                mode='lines',
+                antialias=True
+            )
+            self.path_glow_3d.setGLOptions('additive')
+            self.path_glow_3d.setDepthValue(15)  # Behind main path
+            self.view_3d.addItem(self.path_glow_3d)
+        
+        # Intermediate nodes
+        if len(self.path) > 2:
+            int_pts = [np.array(self.positions_3d[n])*scale for n in self.path[1:-1] 
+                      if n in self.positions_3d]
+            if int_pts:
+                c = QColor(self.path_color)
+                color = (c.redF(), c.greenF(), c.blueF(), 1.0)
+                self.intermediate_scatter_3d = gl.GLScatterPlotItem(
+                    pos=np.array(int_pts),
+                    color=color,
+                    size=25,  # Larger
+                    pxMode=True
+                )
+                self.intermediate_scatter_3d.setGLOptions('opaque')
+                self.intermediate_scatter_3d.setDepthValue(8)  # In front
+                self.view_3d.addItem(self.intermediate_scatter_3d)
+    
     def set_path(self, path: List[int], color: str = '#f59e0b'):
         self.path = path
         self.path_color = color
         self._update_path_display()
+        if self.is_3d_mode and OPENGL_AVAILABLE:
+            self._update_path_display_3d()
         self._init_particles()
-
+    
     def set_source_destination(self, source: Optional[int], destination: Optional[int]):
         self.source = source
         self.destination = destination
         self._update_special_nodes()
-
+        
+        # Update in 3D if in 3D mode
+        if self.is_3d_mode and OPENGL_AVAILABLE:
+            self._draw_graph_3d()
+    
     def _draw_graph(self):
         if self.graph is None:
             return
@@ -322,17 +652,10 @@ class GraphWidget(QWidget):
             pos_array[node] = [x, y]
             node_data.append({'id': node})
         
-        # ====================================================================
-        # [CHAOS MONKEY FEATURE] Edges (Background) - only draw non-broken edges
-        # ====================================================================
-        # Normal edge'ler çizilirken, broken_edges set'indeki edge'ler atlanır.
-        # Broken edge'ler daha sonra _draw_broken_edge() ile ayrı olarak
-        # kırmızı kesikli çizgi olarak çizilir.
-        # ====================================================================
+        # Edges (non-broken)
         edge_x = []
         edge_y = []
         for u, v in self.graph.edges():
-            # Skip broken edges (they're drawn separately)
             if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
                 continue
             x1, y1 = self.positions[u]
@@ -340,143 +663,105 @@ class GraphWidget(QWidget):
             edge_x.extend([x1, x2, np.nan])
             edge_y.extend([y1, y2, np.nan])
         
-        # Convert to numpy arrays to ensure float dtype
         edge_x = np.array(edge_x, dtype=float)
         edge_y = np.array(edge_y, dtype=float)
         
         if len(edge_x) > 0:
             self.edge_lines = self.plot_widget.plot(
                 edge_x, edge_y,
-                pen=pg.mkPen(color=(71, 85, 105, 50), width=0.8), # slate-600 low alpha
+                pen=pg.mkPen(color=(71, 85, 105, 50), width=0.8),
                 connect='finite'
             )
         else:
             self.edge_lines = None
         
-        # ====================================================================
-        # [CHAOS MONKEY FEATURE] Draw broken edges (red dashed)
-        # ====================================================================
-        # Tüm kırılmış edge'ler kırmızı kesikli çizgi olarak çizilir.
-        # Bu, kullanıcıya hangi linklerin kırıldığını görsel olarak gösterir.
-        # ====================================================================
-        # Draw broken edges (red dashed) - redraw all broken edges
+        # Draw broken edges
         for u, v in self.broken_edges:
             self._draw_broken_edge(u, v)
         
-        # Draw broken edges (red dashed)
-        for u, v in self.broken_edges:
-            self._draw_broken_edge(u, v)
-        
-        # Glow Items (Behind everything else)
-        # Source Glow
+        # Glow Items
         self.source_glow = pg.ScatterPlotItem(
-            size=50,
-            brush=pg.mkBrush(34, 197, 94, 80), # green-500 low alpha
-            pen=pg.mkPen(None),
-            pxMode=True
+            size=50, brush=pg.mkBrush(34, 197, 94, 80),
+            pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.source_glow)
         
-        # Dest Glow
         self.dest_glow = pg.ScatterPlotItem(
-            size=50,
-            brush=pg.mkBrush(239, 68, 68, 80), # red-500 low alpha
-            pen=pg.mkPen(None),
-            pxMode=True
+            size=50, brush=pg.mkBrush(239, 68, 68, 80),
+            pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.dest_glow)
         
-        # Intermediate Glow
         self.intermediate_glow = pg.ScatterPlotItem(
-            size=50, 
-            brush=pg.mkBrush(245, 158, 11, 80), # amber-500 low alpha
-            pen=pg.mkPen(None),
-            pxMode=True
+            size=50, brush=pg.mkBrush(245, 158, 11, 80),
+            pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.intermediate_glow)
-
+        
         # Nodes
         self.node_scatter = pg.ScatterPlotItem(
-            pos=pos_array,
-            size=10,
-            brush=pg.mkBrush(100, 116, 139, 200), # slate-500
-            pen=pg.mkPen(None),
-            hoverable=True,
-            data=node_data
+            pos=pos_array, size=10,
+            brush=pg.mkBrush(100, 116, 139, 200),
+            pen=pg.mkPen(None), hoverable=True, data=node_data
         )
         self.node_scatter.sigHovered.connect(self._on_node_hover)
         self.plot_widget.addItem(self.node_scatter)
         
-        # Path Lines (Orange Glow)
+        # Path items
         self.path_lines = self.plot_widget.plot(
-            [], [],
-            pen=pg.mkPen(color=(245, 158, 11, 255), width=4), # amber-500
-            connect='finite'
-        )
-        # Path Glow Effect (Simulated by wider transparent line)
-        self.path_glow = self.plot_widget.plot(
-            [], [],
-            pen=pg.mkPen(color=(245, 158, 11, 100), width=8), 
+            [], [], pen=pg.mkPen(color=(245, 158, 11, 255), width=4),
             connect='finite'
         )
         
-        # Intermediate Nodes Scatter (Path Nodes)
-        # User requested "green dots style" but smaller. keeping path_color for consistency but styling them up.
+        self.path_glow = self.plot_widget.plot(
+            [], [], pen=pg.mkPen(color=(245, 158, 11, 100), width=8),
+            connect='finite'
+        )
+        
         self.intermediate_scatter = pg.ScatterPlotItem(
-            size=28, # Smaller than S/D (45) but larger than normal nodes (10)
-            brush=pg.mkBrush(245, 158, 11, 255), # Default amber, changes with set_path
-            pen=pg.mkPen('w', width=2),
-            pxMode=True
+            size=28, brush=pg.mkBrush(245, 158, 11, 255),
+            pen=pg.mkPen('w', width=2), pxMode=True
         )
         self.plot_widget.addItem(self.intermediate_scatter)
         
-        # Source & Dest Scatters (Large Pointers - Circle)
         self.source_scatter = pg.ScatterPlotItem(
-            size=45, # Large to act as "Pointer"
-            brush=pg.mkBrush(34, 197, 94, 255), # green-500
-            pen=pg.mkPen('w', width=3), # Thicker white border
-            pxMode=True
+            size=45, brush=pg.mkBrush(34, 197, 94, 255),
+            pen=pg.mkPen('w', width=3), pxMode=True
         )
         self.plot_widget.addItem(self.source_scatter)
         
         self.dest_scatter = pg.ScatterPlotItem(
-            size=45, # Large to act as "Pointer"
-            brush=pg.mkBrush(239, 68, 68, 255), # red-500
-            pen=pg.mkPen('w', width=3), # Thicker white border
-            pxMode=True
+            size=45, brush=pg.mkBrush(239, 68, 68, 255),
+            pen=pg.mkPen('w', width=3), pxMode=True
         )
         self.plot_widget.addItem(self.dest_scatter)
         
-        # Particles
         self.particle_scatter = pg.ScatterPlotItem(
-            size=8,
-            brush=pg.mkBrush(255, 255, 255, 255),
-            pen=pg.mkPen(None),
-            pxMode=True
+            size=8, brush=pg.mkBrush(255, 255, 255, 255),
+            pen=pg.mkPen(None), pxMode=True
         )
         self.plot_widget.addItem(self.particle_scatter)
         
-        # Restore labels if they were visible
         if self.labels_visible:
             self._update_node_labels()
-
+    
     def _update_path_display(self):
         if not self.path or len(self.path) < 2:
-            self.path_lines.setData([], [])
-            self.path_glow.setData([], [])
-            self.particle_scatter.setData(pos=[])
+            if self.path_lines:
+                self.path_lines.setData([], [])
+            if self.path_glow:
+                self.path_glow.setData([], [])
+            if self.particle_scatter:
+                self.particle_scatter.setData(pos=[])
             self.timer.stop()
             return
         
-        # Convert hex/str color to QColor with alpha
         c = QColor(self.path_color)
         pen_color = (c.red(), c.green(), c.blue(), 255)
         glow_color = (c.red(), c.green(), c.blue(), 100)
         
         self.path_lines.setPen(pg.mkPen(
-            color=pen_color, 
-            width=3,
-            style=Qt.DashLine # Dashed line for "simulated" look
+            color=pen_color, width=3, style=Qt.DashLine
         ))
         self.path_glow.setPen(pg.mkPen(color=glow_color, width=8))
         
@@ -489,25 +774,21 @@ class GraphWidget(QWidget):
             edge_x.extend([x1, x2, np.nan])
             edge_y.extend([y1, y2, np.nan])
         
-        # Convert to numpy arrays
         edge_x = np.array(edge_x, dtype=float)
         edge_y = np.array(edge_y, dtype=float)
         
         self.path_lines.setData(edge_x, edge_y)
-        self.path_lines.setData(edge_x, edge_y)
         self.path_glow.setData(edge_x, edge_y)
-
-        # Update Intermediate Nodes Color
+        
+        # Update intermediate nodes
         self.intermediate_scatter.setBrush(pg.mkBrush(self.path_color))
-
-        # Update Intermediate Nodes
+        
         int_pos = []
         if len(self.path) > 2:
-            # Intermediate nodes are between first and last
             intermediate_nodes = self.path[1:-1]
             for node in intermediate_nodes:
-                 if node in self.positions:
-                     int_pos.append(list(self.positions[node]))
+                if node in self.positions:
+                    int_pos.append(list(self.positions[node]))
         
         if int_pos:
             self.intermediate_scatter.setData(pos=np.array(int_pos))
@@ -515,33 +796,73 @@ class GraphWidget(QWidget):
         else:
             self.intermediate_scatter.setData(pos=[])
             self.intermediate_glow.setData(pos=[])
-        
+    
     def _init_particles(self):
         self.particles = []
         if not self.path or len(self.path) < 2:
             return
-            
-        # Create particles - Density based on path length
-        # More particles for a "flow" effect
+        
         num_particles = min(20, max(5, len(self.path) * 2))
+        
+        # Determine positions
+        if self.is_3d_mode and self.positions_3d:
+            scale = np.array([10, 10, 10])
+            scaled_pos = {k: tuple(np.array(v)*scale) for k, v in self.positions_3d.items()}
+            positions = scaled_pos
+        else:
+            positions = self.positions
         
         for i in range(num_particles):
             offset = i * (len(self.path) / num_particles)
-            self.particles.append(PathParticle(self.path, self.positions, offset=offset, speed=0.03))
+            self.particles.append(PathParticle(self.path, positions, offset=offset, speed=0.03))
+        
+        # Initialize 3D particle scatter
+        if self.is_3d_mode and self.view_3d:
+            if self.particle_scatter_3d:
+                try:
+                    self.view_3d.removeItem(self.particle_scatter_3d)
+                except:
+                    pass
             
-        self.timer.start(20) # Faster updates for smoother animation
-
+            self.particle_scatter_3d = gl.GLScatterPlotItem(
+                pos=np.zeros((1, 3)),
+                color=(1.0, 1.0, 0.8, 1.0),  # Bright yellow-white
+                size=15,  # Larger particles
+                pxMode=True
+            )
+            self.particle_scatter_3d.setGLOptions('opaque')
+            self.particle_scatter_3d.setDepthValue(3)  # Very front
+            self.view_3d.addItem(self.particle_scatter_3d)
+        
+        self.timer.start(20)
+    
     def _update_animation(self):
         if not self.particles:
             return
+        
         positions = []
         for p in self.particles:
-            x, y = p.update()
-            positions.append([x, y])
-        self.particle_scatter.setData(pos=np.array(positions))
-
+            coords = p.update()
+            if coords:
+                positions.append(coords)
+        
+        if not positions:
+            return
+        
+        if self.is_3d_mode and self.view_3d and self.particle_scatter_3d:
+            if len(positions[0]) == 3:
+                try:
+                    self.particle_scatter_3d.setData(pos=np.array(positions))
+                except:
+                    pass
+        else:
+            if len(positions[0]) == 2:
+                try:
+                    self.particle_scatter.setData(pos=np.array(positions))
+                except:
+                    pass
+    
     def _update_special_nodes(self):
-        # Clear previous text items
         for item in self.text_items:
             self.plot_widget.removeItem(item)
         self.text_items = []
@@ -552,7 +873,6 @@ class GraphWidget(QWidget):
             self.source_scatter.setData(pos=[pos])
             self.source_glow.setData(pos=[pos])
             
-            # Text 'S'
             text_s = pg.TextItem("S", anchor=(0.5, 0.5), color='white')
             font = QFont()
             font.setBold(True)
@@ -562,7 +882,6 @@ class GraphWidget(QWidget):
             self.plot_widget.addItem(text_s)
             self.text_items.append(text_s)
             
-            # Label ID above
             text_id = pg.TextItem(str(self.source), anchor=(0.5, 1.5), color='#f1f5f9')
             text_id.setPos(pos[0], pos[1])
             self.plot_widget.addItem(text_id)
@@ -577,7 +896,6 @@ class GraphWidget(QWidget):
             self.dest_scatter.setData(pos=[pos])
             self.dest_glow.setData(pos=[pos])
             
-            # Text 'D'
             text_d = pg.TextItem("D", anchor=(0.5, 0.5), color='white')
             font = QFont()
             font.setBold(True)
@@ -587,7 +905,6 @@ class GraphWidget(QWidget):
             self.plot_widget.addItem(text_d)
             self.text_items.append(text_d)
             
-            # Label ID above
             text_id = pg.TextItem(str(self.destination), anchor=(0.5, 1.5), color='#f1f5f9')
             text_id.setPos(pos[0], pos[1])
             self.plot_widget.addItem(text_id)
@@ -595,136 +912,75 @@ class GraphWidget(QWidget):
         else:
             self.dest_scatter.setData(pos=[])
             self.dest_glow.setData(pos=[])
-
+    
     def _handle_edge_break(self, mouse_point):
-        """
-        [CHAOS MONKEY FEATURE] Sağ tıklama ile edge'i kır.
-        
-        Bu metod, kullanıcının mouse pozisyonuna en yakın edge'i bulur
-        ve eğer threshold içindeyse edge'i kırar.
-        
-        Args:
-            mouse_point: QPointF - Mouse'un view koordinatlarındaki pozisyonu
-        
-        İşlem Akışı:
-        1. Tüm edge'leri (normal + broken) kontrol et
-        2. Her edge için mouse noktasına olan mesafeyi hesapla
-        3. En yakın edge'i bul
-        4. Eğer threshold içindeyse ve henüz kırılmamışsa -> _break_edge() çağır
-        
-        Threshold: View genişliğinin %2'si (zoom seviyesine göre adaptif)
-        """
         if self.graph is None:
             return
         
         min_dist = float('inf')
         closest_edge = None
         
-        # Find closest edge to click point (including broken edges for visual feedback)
         all_edges = list(self.graph.edges())
-        # Also check broken edges that might still be in positions
         for u, v in list(self.broken_edges):
             if u in self.positions and v in self.positions:
                 all_edges.append((u, v))
         
         for u, v in all_edges:
-            # Skip if already broken (we'll handle it separately)
-            if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
-                # But still check distance for visual feedback
-                pass
-            
             if u not in self.positions or v not in self.positions:
                 continue
             
             x1, y1 = self.positions[u]
             x2, y2 = self.positions[v]
             
-            # Calculate distance from point to line segment
             dist = self._point_to_line_distance(
-                mouse_point.x(), mouse_point.y(),
-                x1, y1, x2, y2
+                mouse_point.x(), mouse_point.y(), x1, y1, x2, y2
             )
             
             if dist < min_dist:
                 min_dist = dist
                 closest_edge = (u, v)
         
-        # Threshold for edge selection (adjust based on zoom level)
         view_range = self.plot_widget.plotItem.vb.viewRange()
         x_range = view_range[0][1] - view_range[0][0]
-        threshold = x_range * 0.02  # 2% of view width
+        threshold = x_range * 0.02
         
         if min_dist < threshold and closest_edge:
             u, v = closest_edge
-            # Only break if not already broken
             if (u, v) not in self.broken_edges and (v, u) not in self.broken_edges:
                 self._break_edge(u, v)
     
     def _break_edge(self, u: int, v: int):
-        """
-        [CHAOS MONKEY FEATURE] Edge'i kır ve görsel olarak işaretle.
-        
-        Bu metod:
-        1. Edge'i broken_edges set'ine ekler
-        2. NetworkX graph'tan edge'i kaldırır (algoritmalar artık bu edge'i kullanamaz)
-        3. Görsel olarak kırmızı kesikli çizgi çizer
-        4. edge_broken signal'ini emit eder (MainWindow otomatik re-optimization yapar)
-        
-        Args:
-            u, v: Edge'in node ID'leri
-        
-        ÖNEMLİ NOTLAR:
-        - Edge hem (u, v) hem de (v, u) formatında kontrol edilir (yönlü olmayan graf)
-        - Graph'tan kaldırılan edge artık pathfinding algoritmaları tarafından kullanılamaz
-        - Görsel temsil korunur (kullanıcı hangi linklerin kırıldığını görebilir)
-        """
-        # Check if already broken
         if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
             return
         
-        # Add to broken edges set
         self.broken_edges.add((u, v))
         
-        # Remove from graph (but keep visual representation)
         if self.graph.has_edge(u, v):
             self.graph.remove_edge(u, v)
         
-        # Visual update: Draw broken edge as red dashed line
         self._draw_broken_edge(u, v)
         
-        # Emit signal for auto-rerouting
-        # MainWindow._on_edge_broken() bu signal'i dinler ve otomatik olarak
-        # mevcut kaynak/hedef için yeniden optimizasyon yapar
+        # Draw in 3D if in 3D mode
+        if self.is_3d_mode and self.view_3d:
+            self._draw_broken_edge_3d(u, v)
+        
         self.edge_broken.emit(u, v)
         
-        # Log message
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"🔴 Link {u}-{v} broken! Rerouting traffic...")
     
     def _draw_broken_edge(self, u: int, v: int):
-        """
-        [CHAOS MONKEY FEATURE] Kırılmış edge'i kırmızı kesikli çizgi olarak çiz.
-        
-        Görsel Geri Bildirim:
-        - Renk: Kırmızı (239, 68, 68) - Kullanıcıya link'in kırıldığını gösterir
-        - Stil: Kesikli çizgi (DashLine) - Normal edge'lerden ayırt edilebilir
-        - Kalınlık: 2.0px - Dikkat çekici
-        
-        Çizilen line item broken_edge_lines listesine eklenir,
-        böylece clear() çağrıldığında temizlenebilir.
-        """
         if u not in self.positions or v not in self.positions:
             return
         
         x1, y1 = self.positions[u]
         x2, y2 = self.positions[v]
         
-        # Create red dashed line
         broken_line = self.plot_widget.plot(
             [x1, x2], [y1, y2],
             pen=pg.mkPen(
-                color=(239, 68, 68, 200),  # red-500 with high alpha
+                color=(239, 68, 68, 200),
                 width=2.0,
                 style=Qt.DashLine
             ),
@@ -736,18 +992,14 @@ class GraphWidget(QWidget):
         if len(points) > 0:
             pt = points[0]
             node_id = pt.data()['id']
-            # Simple interaction, can be expanded
-            
+    
     def _on_mouse_clicked(self, event):
         if self.graph is None:
             return
         
-        # Check if right mouse button (button 3 in PyQtGraph)
         if event.button() != Qt.RightButton:
-            # Left click - node selection (existing behavior)
             pos = event.scenePos()
             mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
-            
             min_dist = float('inf')
             closest_node = None
             
@@ -760,49 +1012,35 @@ class GraphWidget(QWidget):
             if min_dist < 0.01:
                 self.node_clicked.emit(closest_node)
         else:
-            # ================================================================
-            # [CHAOS MONKEY FEATURE] Right-click: Edge Break
-            # ================================================================
-            # Kullanıcı bir edge'e sağ tıkladığında, o edge kırılır.
-            # Mouse pozisyonu view koordinatlarına çevrilir ve
-            # _handle_edge_break() metodu en yakın edge'i bulup kırar.
-            # ================================================================
             pos = event.scenePos()
             mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
             self._handle_edge_break(mouse_point)
     
     def _on_mouse_moved(self, pos):
-        """Mouse hareket event'i - edge hover için."""
         if self.graph is None:
             return
-        
         mouse_point = self.plot_widget.plotItem.vb.mapSceneToView(pos)
         self._check_edge_hover(mouse_point)
     
     def _check_edge_hover(self, mouse_point):
-        """Mouse pozisyonuna en yakın edge'i bul ve tooltip göster."""
         if self.graph is None:
             return
         
         min_dist = float('inf')
         closest_edge = None
         
-        # Check distance to all edges
         for u, v in self.graph.edges():
             x1, y1 = self.positions[u]
             x2, y2 = self.positions[v]
             
-            # Calculate distance from point to line segment
             dist = self._point_to_line_distance(
-                mouse_point.x(), mouse_point.y(),
-                x1, y1, x2, y2
+                mouse_point.x(), mouse_point.y(), x1, y1, x2, y2
             )
             
             if dist < min_dist:
                 min_dist = dist
                 closest_edge = (u, v)
         
-        # Show tooltip if close enough (threshold in view coordinates)
         hover_threshold = 0.02
         if min_dist < hover_threshold and closest_edge:
             if self.current_hovered_edge != closest_edge:
@@ -814,34 +1052,25 @@ class GraphWidget(QWidget):
                 self.current_hovered_edge = None
     
     def _point_to_line_distance(self, px, py, x1, y1, x2, y2):
-        """Bir noktanın bir doğru parçasına olan uzaklığını hesapla."""
-        # Vector from line start to end
         dx = x2 - x1
         dy = y2 - y1
         
-        # If line is a point, return distance to that point
         if dx == 0 and dy == 0:
             return ((px - x1) ** 2 + (py - y1) ** 2) ** 0.5
         
-        # Vector from line start to point
         px_dx = px - x1
         py_dy = py - y1
         
-        # Project point onto line
         t = max(0, min(1, (px_dx * dx + py_dy * dy) / (dx * dx + dy * dy)))
         
-        # Closest point on line segment
         closest_x = x1 + t * dx
         closest_y = y1 + t * dy
         
-        # Distance from point to closest point on line
         return ((px - closest_x) ** 2 + (py - closest_y) ** 2) ** 0.5
     
     def _show_edge_tooltip(self, edge, mouse_point):
-        """Edge bilgilerini tooltip olarak göster."""
         u, v = edge
         edge_data = self.graph.edges[u, v]
-        
         delay = edge_data.get('delay', 0.0)
         reliability = edge_data.get('reliability', 1.0)
         bandwidth = edge_data.get('bandwidth', 0.0)
@@ -853,11 +1082,9 @@ class GraphWidget(QWidget):
             f"Bant Genişliği: {bandwidth:.2f} Mbps"
         )
         
-        # Remove old tooltip if exists
         if self.edge_tooltip is not None:
             self.plot_widget.removeItem(self.edge_tooltip)
         
-        # Create new tooltip
         self.edge_tooltip = pg.TextItem(
             tooltip_text,
             anchor=(0, 1),
@@ -868,24 +1095,20 @@ class GraphWidget(QWidget):
         font = QFont()
         font.setPointSize(9)
         self.edge_tooltip.setFont(font)
-        # Position tooltip near mouse but offset slightly
+        
         self.edge_tooltip.setPos(mouse_point.x() + 0.05, mouse_point.y() - 0.05)
         self.plot_widget.addItem(self.edge_tooltip)
         
-        # Highlight the edge
         self._highlight_edge(edge, True)
     
     def _hide_edge_tooltip(self):
-        """Edge tooltip'i gizle."""
         if self.edge_tooltip is not None:
             self.plot_widget.removeItem(self.edge_tooltip)
             self.edge_tooltip = None
         
-        # Remove edge highlight
         self._highlight_edge(self.current_hovered_edge, False)
     
     def _highlight_edge(self, edge, highlight):
-        """Edge'i vurgula (hover durumunda)."""
         if edge is None:
             return
         
@@ -894,22 +1117,19 @@ class GraphWidget(QWidget):
         x2, y2 = self.positions[v]
         
         if highlight:
-            # Remove old highlight if exists
             if self.edge_highlight_line is not None:
                 self.plot_widget.removeItem(self.edge_highlight_line)
             
-            # Create highlight line
             self.edge_highlight_line = self.plot_widget.plot(
                 [x1, x2], [y1, y2],
-                pen=pg.mkPen(color=(59, 130, 246, 200), width=3),  # blue-500 with alpha
+                pen=pg.mkPen(color=(59, 130, 246, 200), width=3),
                 connect='finite'
             )
         else:
-            # Remove highlight
             if self.edge_highlight_line is not None:
                 self.plot_widget.removeItem(self.edge_highlight_line)
                 self.edge_highlight_line = None
-
+    
     def _zoom_in(self):
         self.plot_widget.plotItem.vb.scaleBy((0.7, 0.7))
     
@@ -923,77 +1143,59 @@ class GraphWidget(QWidget):
             self.plot_widget.plotItem.vb.autoRange()
         except Exception:
             pass
-        
+    
     def toggle_labels(self):
         self.labels_visible = not self.labels_visible
         self._update_node_labels()
-        
+    
     def _update_node_labels(self):
-        # Clear existing labels
         for item in self.node_labels:
             self.plot_widget.removeItem(item)
         self.node_labels = []
         
         if not self.labels_visible or self.graph is None:
             return
-            
+        
         for node, (x, y) in self.positions.items():
-            # Skip if source or dest (they have their own labels)
             if node == self.source or node == self.destination:
                 continue
-                
-            text = pg.TextItem(
-                str(node), 
-                anchor=(0.5, 0.5),
-                color='#e2e8f0' # slate-200
-            )
-            # Center it on the node
+            
+            text = pg.TextItem(str(node), anchor=(0.5, 0.5), color='#e2e8f0')
             text.setPos(x, y)
             self.plot_widget.addItem(text)
             self.node_labels.append(text)
-            
+    
     def clear(self):
-        """
-        Widget'ı temizle ve tüm state'i sıfırla.
-        
-        [CHAOS MONKEY FEATURE] Broken edges de burada temizlenir.
-        Yeni bir graf yüklendiğinde veya reset yapıldığında,
-        önceki broken edge'ler sıfırlanır.
-        """
         self.graph = None
         self.positions = {}
+        self.positions_3d = {}
         self.path = []
         self.source = None
         self.destination = None
         self.current_hovered_edge = None
-        # [CHAOS MONKEY] Clear broken edges when graph is cleared
+        
         self.broken_edges.clear()
         self.broken_edge_lines.clear()
+        self.broken_edge_lines_3d = []
+        
         self.plot_widget.clear()
+        if self.view_3d:
+            self._clear_3d_view()
+        
         self.timer.stop()
+        
+        if hasattr(self, 'placeholder'):
+            self.placeholder.show()
+            self.plot_widget.hide()
+            self.controls_container.hide()
     
     def reset_broken_edges(self):
-        """
-        [CHAOS MONKEY FEATURE] Tüm kırılmış edge'leri geri yükle (reset).
-        
-        Bu metod, kırılmış edge'leri NetworkX graph'a geri ekler ve
-        görsel temsillerini kaldırır. Kullanıcı "Reset" butonuna bastığında
-        veya manuel olarak edge'leri geri yüklemek istediğinde kullanılabilir.
-        
-        NOT: Edge attribute'ları (delay, reliability, bandwidth) kaybolabilir,
-        bu durumda varsayılan değerler kullanılır.
-        """
-        # Restore edges in graph
         for u, v in list(self.broken_edges):
             if not self.graph.has_edge(u, v):
-                # Re-add edge with default attributes if needed
-                # Note: Original attributes might be lost, so we use defaults
                 self.graph.add_edge(u, v)
         
-        # Clear broken edges
         self.broken_edges.clear()
         
-        # Remove visual broken edge lines
         for line in self.broken_edge_lines:
             try:
                 self.plot_widget.removeItem(line)
@@ -1001,11 +1203,16 @@ class GraphWidget(QWidget):
                 pass
         self.broken_edge_lines.clear()
         
-        # Redraw graph
-        if self.graph is not None:
-            self._draw_graph()
+        # Clear 3D broken edges
+        for line in self.broken_edge_lines_3d:
+            try:
+                self.view_3d.removeItem(line)
+            except:
+                pass
+        self.broken_edge_lines_3d = []
         
-        if hasattr(self, 'placeholder'):
-            self.placeholder.show()
-            self.plot_widget.hide()
-            self.controls_container.hide()
+        if self.graph is not None:
+            if self.is_3d_mode and OPENGL_AVAILABLE:
+                self._draw_graph_3d()
+            else:
+                self._draw_graph()

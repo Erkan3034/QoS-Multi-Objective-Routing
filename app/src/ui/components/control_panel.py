@@ -10,7 +10,9 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import pyqtSignal, Qt, QSize
 from PyQt5.QtGui import QColor, QPalette, QIcon
 from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple
 import os
+from .hyperparameter_dialog import HyperparameterDialog
 
 
 class ControlPanel(QWidget):
@@ -19,7 +21,11 @@ class ControlPanel(QWidget):
     # Sinyaller
     generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
     load_csv_requested = pyqtSignal()  # CSV yükleme isteği
-    optimize_requested = pyqtSignal(str, int, int, dict, float)  # algorithm, source, dest, weights, bandwidth_demand
+    generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
+    load_csv_requested = pyqtSignal()  # CSV yükleme isteği
+    optimize_requested = pyqtSignal(str, int, int, dict, float, dict)  # algorithm, source, dest, weights, bandwidth_demand, hyperparameters
+    compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
+    reset_requested = pyqtSignal()
     compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
     reset_requested = pyqtSignal()
     demand_selected = pyqtSignal(int, int, int)  # source, dest, demand_mbps
@@ -30,6 +36,7 @@ class ControlPanel(QWidget):
         self.setMinimumWidth(260)
         self.setMaximumWidth(300)
         self._demands: List[Tuple[int, int, int]] = []
+        self.hyperparameters = {} # Store hyperparameter overrides
         self._setup_ui()
     
     def _setup_ui(self):
@@ -200,8 +207,47 @@ class ControlPanel(QWidget):
         opt_layout.setSpacing(0) 
         opt_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Header
-        opt_layout.addWidget(self._create_header_label("Optimizasyon"))
+        # Header with Settings Button
+        opt_header_layout = QHBoxLayout()
+        opt_header_layout.addWidget(self._create_header_label("Optimizasyon"))
+        
+        self.btn_settings = QPushButton()
+        self.btn_settings.setFixedSize(24, 24)
+        self.btn_settings.setCursor(Qt.PointingHandCursor)
+        self.btn_settings.setToolTip("Gelişmiş Algoritma Ayarları")
+        
+        # Load Gear Icon
+        icons_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "icons", "settings.svg")
+        if os.path.exists(icons_path):
+            self.btn_settings.setIcon(QIcon(icons_path))
+        else:
+             self.btn_settings.setText("⚙️")
+             
+        self.btn_settings.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #334155;
+            }
+        """)
+        self.btn_settings.clicked.connect(self._on_settings_clicked)
+        opt_header_layout.addWidget(self.btn_settings)
+        opt_header_layout.addStretch() # Push header to left, button is next to it? No, header returns widget.
+        
+        # Adjusting layout: _create_header_label returns a QLabel, we can't add layout to it.
+        # So we wrap header and button in a widget.
+        header_wrapper = QWidget()
+        hw_layout = QHBoxLayout(header_wrapper)
+        hw_layout.setContentsMargins(0, 0, 10, 0)
+        hw_layout.setSpacing(10)
+        hw_layout.addWidget(self._create_header_label("Optimizasyon"))
+        hw_layout.addStretch()
+        hw_layout.addWidget(self.btn_settings)
+        
+        opt_layout.addWidget(header_wrapper)
         
         # Content Wrapper
         opt_content = QWidget()
@@ -646,7 +692,8 @@ class ControlPanel(QWidget):
             self.spin_source.value(),
             self.spin_dest.value(),
             self._get_weights(),
-            demand
+            demand,
+            self.hyperparameters
         )
 
     
@@ -760,3 +807,9 @@ class ControlPanel(QWidget):
 
 
 
+    def _on_settings_clicked(self):
+        """Ayarlar diyalogunu aç."""
+        dialog = HyperparameterDialog(self.hyperparameters, self)
+        if dialog.exec_():
+            self.hyperparameters = dialog.get_params()
+            # Visual feedback? Maybe change button color if params are not empty/default

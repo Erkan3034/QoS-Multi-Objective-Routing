@@ -223,11 +223,15 @@ class GraphService:
         
         return info
     
-    def get_node_positions(self) -> Dict[int, tuple]:
-        """Graf düğümlerinin pozisyonlarını hesaplar (görselleştirme için)."""
+    def get_node_positions(self, dim: int = 2) -> Dict[int, tuple]:
+        """Graf düğümlerinin pozisyonlarını hesaplar (görselleştirme için).
+        Args:
+            dim: 2 veya 3 (boyut sayısı)
+        """
         if self.graph is None:
             return {}
-        return nx.spring_layout(self.graph, seed=self.seed, k=2/np.sqrt(self.graph.number_of_nodes()))
+        # 3D layout için dim=3
+        return nx.spring_layout(self.graph, seed=self.seed, k=2/np.sqrt(self.graph.number_of_nodes()), dim=dim)
     
     def has_path(self, source: int, destination: int) -> bool:
         if self.graph is None:

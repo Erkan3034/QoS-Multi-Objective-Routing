@@ -633,7 +633,7 @@ class MainWindow(QMainWindow):
         """Talep çifti seçildiğinde."""
         self.graph_widget.set_source_destination(source, dest)
             
-    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0):
+    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0, hyperparameters: Dict = None):
         if not self._check_graph(): return
         if source == dest:
             QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
@@ -656,9 +656,60 @@ class MainWindow(QMainWindow):
         # Don't use seed to allow different results with same weights (stochastic behavior)
         try:
             algorithm_name, AlgoClass = ALGORITHMS[algorithm]
-            # Create new instance without seed to ensure non-deterministic results
-            # This allows the algorithm to find different paths when weights change
-            algorithm_instance = AlgoClass(graph=self.graph_service.graph, seed=None)
+            
+            # Map Hyperparameters to Constructor Arguments
+            algo_kwargs = {'graph': self.graph_service.graph, 'seed': None}
+            
+            # Helper to map keys if they exist in hyperparameters
+            def map_param(config_key, arg_name):
+                if hyperparameters and config_key in hyperparameters:
+                    algo_kwargs[arg_name] = hyperparameters[config_key]
+
+            if algorithm == 'ga':
+                map_param('GA_POPULATION_SIZE', 'population_size')
+                map_param('GA_GENERATIONS', 'generations')
+                map_param('GA_MUTATION_RATE', 'mutation_rate')
+                map_param('GA_CROSSOVER_RATE', 'crossover_rate')
+                map_param('GA_ELITISM', 'elitism')
+                
+            elif algorithm == 'aco':
+                map_param('ACO_N_ANTS', 'n_ants')
+                map_param('ACO_N_ITERATIONS', 'n_iterations')
+                map_param('ACO_EVAPORATION_RATE', 'evaporation_rate')
+                
+                # ACO expects ranges, but UI provides single values
+                # We fix the range to the single value to enforce it
+                if hyperparameters:
+                    if 'ACO_ALPHA' in hyperparameters:
+                        val = float(hyperparameters['ACO_ALPHA'])
+                        algo_kwargs['alpha_range'] = (val, val)
+                    if 'ACO_BETA' in hyperparameters:
+                        val = float(hyperparameters['ACO_BETA'])
+                        algo_kwargs['beta_range'] = (val, val)
+                
+            elif algorithm == 'pso':
+                map_param('PSO_N_PARTICLES', 'n_particles')
+                map_param('PSO_N_ITERATIONS', 'n_iterations')
+                map_param('PSO_W', 'w')
+                map_param('PSO_C1', 'c1')
+                map_param('PSO_C2', 'c2')
+                
+            elif algorithm == 'sa':
+                map_param('SA_INITIAL_TEMPERATURE', 'initial_temp')
+                map_param('SA_FINAL_TEMPERATURE', 'final_temp')
+                map_param('SA_COOLING_RATE', 'cooling_rate')
+                map_param('SA_ITERATIONS_PER_TEMP', 'iter_per_temp')
+                
+            elif algorithm in ['qlearning', 'sarsa']:
+                map_param('QL_EPISODES', 'episodes')
+                map_param('QL_LEARNING_RATE', 'learning_rate')
+                map_param('QL_DISCOUNT_FACTOR', 'discount_factor')
+                map_param('QL_EPSILON_START', 'epsilon_start')
+                map_param('QL_EPSILON_END', 'epsilon_end')
+                map_param('QL_EPSILON_DECAY', 'epsilon_decay')
+
+            # Create new instance with mapped parameters
+            algorithm_instance = AlgoClass(**algo_kwargs)
         except KeyError:
             QMessageBox.critical(self, "Hata", f"Bilinmeyen algoritma: {algorithm}")
             self.control_panel.set_loading(False)

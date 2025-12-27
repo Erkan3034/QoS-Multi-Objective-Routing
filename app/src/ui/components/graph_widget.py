@@ -432,27 +432,57 @@ class GraphWidget(QWidget):
         if not self.positions_3d:
             self._generate_3d_positions()
         
-        # Prepare node data
-        pos_array = np.array([self.positions_3d[n] for n in self.graph.nodes()])
+        # Prepare node data - Real World Simulation
+        # Size and Color based on Degree Centrality (Network Tier)
+        degrees = dict(self.graph.degree())
+        max_degree = max(degrees.values()) if degrees else 1
+        min_degree = min(degrees.values()) if degrees else 1
+        
+        pos_list = []
+        color_list = []
+        size_list = []
+        
+        for node in self.graph.nodes():
+            if node not in self.positions_3d:
+                continue
+                
+            # Position
+            pos_list.append(self.positions_3d[node])
+            
+            # Degree-based calculations
+            deg = degrees.get(node, 0)
+            norm_deg = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
+            
+            # Size: Base 8 + up to 25 based on importance
+            size = 8 + (norm_deg * 25)
+            size_list.append(size)
+            
+            # Color: Gradient from Green (Edge) to Blue/Cyan (Core)
+            # Edge (Low deg): [34, 197, 94] (Green)
+            # Core (High deg): [59, 130, 246] (Blue)
+            r = 34 + (59 - 34) * norm_deg
+            g = 197 + (130 - 197) * norm_deg
+            b = 94 + (246 - 94) * norm_deg
+            
+            # Add some transparency to inner nodes to see structure
+            alpha = 0.8 + (0.2 * norm_deg) # Core nodes more opaque
+            
+            color_list.append([r/255.0, g/255.0, b/255.0, alpha])
+
+        pos_array = np.array(pos_list)
         pos_array *= 10
         
-        # Nodes
-        # Brighter slate color with higher alpha
-        c = np.array([150, 170, 200, 255]) / 255.0  # Lighter blue-gray
-        colors = np.tile(c, (len(pos_array), 1))
         self.node_scatter_3d = gl.GLScatterPlotItem(
             pos=pos_array,
-            color=colors,
-            size=12,  # Slightly larger
+            color=np.array(color_list),
+            size=np.array(size_list),
             pxMode=True
         )
-        self.node_scatter_3d.setGLOptions('opaque')  # Solid nodes
-        self.node_scatter_3d.setDepthValue(40)  # Behind edges
+        self.node_scatter_3d.setGLOptions('translucent')  # Allow alpha
+        self.node_scatter_3d.setDepthValue(40)
         self.view_3d.addItem(self.node_scatter_3d)
         
         # Edges (non-broken) - BATCHED for performance
-        # Drawing each edge separately causes ~12000 OpenGL objects = LAG
-        # Instead, batch all edges into a single GLLinePlotItem
         scale = np.array([10, 10, 10])
         edge_pts = []
         
@@ -467,17 +497,17 @@ class GraphWidget(QWidget):
         
         if edge_pts:
             edge_pts = np.array(edge_pts)
-            # Single batched line item - MUCH faster
+            # Fiber Optic Look: Thinner, more transparent, white/cyan tint
             edge_lines = gl.GLLinePlotItem(
                 pos=edge_pts,
-                color=(0.6, 0.65, 0.7, 0.7),  # Light gray
-                width=2.0,
+                color=(0.7, 0.8, 0.9, 0.15),  # Very transparent blueish-white (Fiber)
+                width=1.5,
                 mode='lines',
-                antialias=False
+                antialias=True
             )
-            edge_lines.setGLOptions('translucent')
+            edge_lines.setGLOptions('additive') # Glowing effect
             self.view_3d.addItem(edge_lines)
-            self.edge_lines_3d = [edge_lines]  # Store as list for compatibility
+            self.edge_lines_3d = [edge_lines]
         
         # Draw broken edges in 3D
         for u, v in self.broken_edges:

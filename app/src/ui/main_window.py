@@ -4,6 +4,7 @@ Ana Pencere - QoS Routing Desktop Application
 import sys
 import os
 import random
+import statistics
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QMessageBox, QStatusBar, QApplication, QTabWidget, QSplitter,
@@ -271,6 +272,122 @@ class ScalabilityWorker(QThread):
             import traceback
             self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
 
+class ParetoWorker(QThread):
+    """Pareto analizi thread'i - UI donmasını önler."""
+    
+    finished = pyqtSignal(object)  # ParetoAnalysisResult
+    progress = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, graph, source, destination, n_solutions=100):
+        super().__init__()
+        self.graph = graph
+        self.source = source
+        self.destination = destination
+        self.n_solutions = n_solutions
+        print(f"[ParetoWorker] Oluşturuldu: {source} -> {destination}, n_solutions={n_solutions}")
+        
+    def run(self):
+        try:
+            print("[ParetoWorker] Thread başlatıldı...")
+            self.progress.emit("Pareto analizi başlatılıyor...")
+            
+            print("[ParetoWorker] ParetoAnalyzer import ediliyor...")
+            from src.experiments.pareto_analyzer import ParetoAnalyzer
+            
+            print("[ParetoWorker] Analyzer oluşturuluyor...")
+            analyzer = ParetoAnalyzer(self.graph)
+            
+            print(f"[ParetoWorker] find_pareto_frontier çağrılıyor ({self.source} -> {self.destination})...")
+            result = analyzer.find_pareto_frontier(
+                self.source, 
+                self.destination, 
+                n_solutions=self.n_solutions
+            )
+            
+            print(f"[ParetoWorker] Analiz tamamlandı! Pareto: {result.pareto_count}, Toplam: {result.total_solutions}")
+            print("[ParetoWorker] finished signal emit ediliyor...")
+            self.finished.emit(result)
+            print("[ParetoWorker] Signal emit edildi!")
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"Pareto analizi hatası:\n{str(e)}\n{traceback.format_exc()}"
+            print(f"[ParetoWorker] HATA: {error_msg}")
+            self.error.emit(error_msg)
+
+class ILPBenchmarkWorker(QThread):
+    """ILP benchmark thread'i - UI donmasını önler."""
+    
+    finished = pyqtSignal(dict)  # Benchmark sonuçları
+    progress = pyqtSignal(str)
+    error = pyqtSignal(str)
+    
+    def __init__(self, graph, source, destination, weights):
+        super().__init__()
+        self.graph = graph
+        self.source = source
+        self.destination = destination
+        self.weights = weights
+        print(f"[ILPWorker] Oluşturuldu: {source} -> {destination}, weights={weights}")
+        
+    def run(self):
+        try:
+            print("[ILPWorker] Thread başlatıldı...")
+            self.progress.emit("ILP çözümü hesaplanıyor...")
+            
+            print("[ILPWorker] ILP modülleri import ediliyor...")
+            from src.experiments.ilp_solver import ILPSolver, ILPBenchmark
+            from src.algorithms import ALGORITHMS
+            
+            # ILP optimal çözümü
+            print("[ILPWorker] ILP solver oluşturuluyor...")
+            solver = ILPSolver(self.graph)
+            
+            print(f"[ILPWorker] ILP çözümü hesaplanıyor ({self.source} -> {self.destination})...")
+            ilp_result = solver.solve(self.source, self.destination, self.weights)
+            print(f"[ILPWorker] ILP sonucu: cost={ilp_result.optimal_cost:.4f}, status={ilp_result.status}")
+            
+            self.progress.emit("Algoritmalar karşılaştırılıyor...")
+            
+            # Tüm algoritmalarla karşılaştır
+            benchmark = ILPBenchmark(self.graph)
+            comparisons = []
+            
+            for key, (name, AlgoClass) in ALGORITHMS.items():
+                try:
+                    print(f"[ILPWorker] {name} test ediliyor...")
+                    self.progress.emit(f"{name} test ediliyor...")
+                    algo = AlgoClass(graph=self.graph)
+                    result = algo.optimize(
+                        source=self.source, 
+                        destination=self.destination, 
+                        weights=self.weights
+                    )
+                    comparison = benchmark.compare_with_algorithm(
+                        result, self.source, self.destination, self.weights
+                    )
+                    comparison["algorithm"] = name
+                    comparisons.append(comparison)
+                    print(f"[ILPWorker] {name}: gap={comparison['optimality_gap_percent']:.2f}%")
+                except Exception as ex:
+                    print(f"[ILPWorker] {name} HATA: {str(ex)}")
+            
+            print("[ILPWorker] Tüm karşılaştırmalar tamamlandı, signal emit ediliyor...")
+            self.finished.emit({
+                "ilp_result": ilp_result,
+                "comparisons": comparisons,
+                "source": self.source,
+                "destination": self.destination
+            })
+            print("[ILPWorker] Signal emit edildi!")
+            
+        except Exception as e:
+            import traceback
+            error_msg = f"ILP benchmark hatası:\n{str(e)}\n{traceback.format_exc()}"
+            print(f"[ILPWorker] HATA: {error_msg}")
+            self.error.emit(error_msg)
+
 class MainWindow(QMainWindow):
     """Ana uygulama penceresi."""
     
@@ -488,6 +605,9 @@ class MainWindow(QMainWindow):
         self.experiments_panel.load_scenarios_requested.connect(self._on_load_test_scenarios)
         self.experiments_panel.compare_two_requested.connect(self._on_compare_two_algorithms)
         self.experiments_panel.show_path_requested.connect(self._on_show_path_requested)
+        # Advanced features
+        self.experiments_panel.run_pareto_requested.connect(self._on_run_pareto_analysis)
+        self.experiments_panel.run_ilp_benchmark_requested.connect(self._on_run_ilp_benchmark)
         
         # Graph widget
         self.graph_widget.node_clicked.connect(self._on_node_clicked)
@@ -633,7 +753,7 @@ class MainWindow(QMainWindow):
         """Talep çifti seçildiğinde."""
         self.graph_widget.set_source_destination(source, dest)
             
-    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0, hyperparameters: Dict = None):
+    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0, hyperparameters: Dict = None, n_runs: int = 1):
         if not self._check_graph(): return
         if source == dest:
             QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
@@ -650,6 +770,12 @@ class MainWindow(QMainWindow):
         # [LIVE CONVERGENCE PLOT] Use generic OptimizationWorker for ALL algorithms
         # Reset convergence plot for new optimization
         self.convergence_widget.reset_plot()
+        
+        # Store multi-start info for result handler
+        self._multistart_n_runs = n_runs
+        self._multistart_current_run = 0
+        self._multistart_best_result = None
+        self._multistart_all_results = []
         
         # Instantiate the algorithm class
         # [FIX] Create fresh instance each time to ensure weights are properly applied
@@ -708,12 +834,25 @@ class MainWindow(QMainWindow):
                 map_param('QL_EPSILON_END', 'epsilon_end')
                 map_param('QL_EPSILON_DECAY', 'epsilon_decay')
 
+            # Store algo settings for multi-start
+            self._multistart_algo_class = AlgoClass
+            self._multistart_algo_kwargs = algo_kwargs
+            self._multistart_algo_name = algorithm_name
+            self._multistart_weights = weights
+            self._multistart_source = source
+            self._multistart_dest = dest
+            self._multistart_bandwidth = bandwidth_demand
+            
             # Create new instance with mapped parameters
             algorithm_instance = AlgoClass(**algo_kwargs)
         except KeyError:
             QMessageBox.critical(self, "Hata", f"Bilinmeyen algoritma: {algorithm}")
             self.control_panel.set_loading(False)
             return
+        
+        # Log multi-start info
+        if n_runs > 1:
+            print(f"[Multi-Start] {algorithm_name} ile {n_runs} çalıştırma başlıyor...")
         
         # Use generic OptimizationWorker which supports progress callbacks for all algorithms
         self.current_worker = GenericOptimizationWorker(
@@ -734,6 +873,55 @@ class MainWindow(QMainWindow):
         self.current_worker.start()
         
     def _on_optimization_finished(self, result: OptimizationResult):
+        # Multi-start logic
+        if hasattr(self, '_multistart_n_runs') and self._multistart_n_runs > 1:
+            self._multistart_current_run += 1
+            self._multistart_all_results.append(result)
+            
+            # Track best result
+            if self._multistart_best_result is None or result.weighted_cost < self._multistart_best_result.weighted_cost:
+                self._multistart_best_result = result
+            
+            print(f"[Multi-Start] Çalıştırma {self._multistart_current_run}/{self._multistart_n_runs}: fitness={result.weighted_cost:.4f}")
+            
+            # If more runs needed, start next one
+            if self._multistart_current_run < self._multistart_n_runs:
+                # Create new algorithm instance
+                algorithm_instance = self._multistart_algo_class(**self._multistart_algo_kwargs)
+                
+                self.current_worker = GenericOptimizationWorker(
+                    algorithm_instance=algorithm_instance,
+                    algorithm_name=self._multistart_algo_name,
+                    graph=self.graph_service.graph,
+                    source=self._multistart_source,
+                    dest=self._multistart_dest,
+                    weights=self._multistart_weights,
+                    bandwidth_demand=self._multistart_bandwidth
+                )
+                self.current_worker.progress_data.connect(self.convergence_widget.update_plot)
+                self.current_worker.finished.connect(self._on_optimization_finished)
+                self.current_worker.error.connect(self._on_error)
+                self.current_worker.start()
+                return
+            
+            # All runs complete - show statistics and best result
+            all_costs = [r.weighted_cost for r in self._multistart_all_results]
+            mean_cost = statistics.mean(all_costs)
+            std_cost = statistics.stdev(all_costs) if len(all_costs) > 1 else 0
+            min_cost = min(all_costs)
+            max_cost = max(all_costs)
+            
+            print(f"[Multi-Start] Tamamlandı!")
+            print(f"  En iyi: {min_cost:.4f}")
+            print(f"  En kötü: {max_cost:.4f}")
+            print(f"  Ortalama: {mean_cost:.4f} ± {std_cost:.4f}")
+            
+            # Use best result
+            result = self._multistart_best_result
+            
+            # Reset multi-start state
+            self._multistart_n_runs = 1
+        
         self.current_result = result
         self.control_panel.set_loading(False)
         
@@ -993,3 +1181,123 @@ class MainWindow(QMainWindow):
         
         dialog = ScenariosDialog(scenarios, self)
         dialog.exec_()
+
+    def _on_run_pareto_analysis(self):
+        """Pareto optimalite analizi başlat (QThread ile)."""
+        print("[MainWindow] _on_run_pareto_analysis çağrıldı")
+        
+        if not self._check_graph():
+            QMessageBox.warning(self, "Uyarı", "Önce bir graf yükleyin veya oluşturun!")
+            return
+        
+        source = self.control_panel.spin_source.value()
+        dest = self.control_panel.spin_dest.value()
+        
+        print(f"[MainWindow] Pareto: source={source}, dest={dest}")
+        
+        if source == dest:
+            QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
+            return
+        
+        # UI feedback
+        self.status_bar.showMessage("Pareto analizi başlatılıyor...")
+        self.experiments_panel.btn_pareto.setEnabled(False)
+        self.experiments_panel.btn_pareto.setText("Analiz ediliyor...")
+        
+        # Start worker thread
+        print("[MainWindow] ParetoWorker oluşturuluyor...")
+        self.current_worker = ParetoWorker(
+            self.graph_service.graph, 
+            source, 
+            dest, 
+            n_solutions=100
+        )
+        
+        print("[MainWindow] Signal bağlantıları yapılıyor...")
+        self.current_worker.progress.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.current_worker.finished.connect(self._on_pareto_finished)
+        self.current_worker.error.connect(self._on_pareto_error)
+        
+        print("[MainWindow] Worker başlatılıyor...")
+        self.current_worker.start()
+        print("[MainWindow] Worker başlatıldı!")
+    
+    def _on_pareto_finished(self, result):
+        """Pareto analizi tamamlandığında."""
+        print(f"[MainWindow] _on_pareto_finished çağrıldı! Pareto: {result.pareto_count}")
+        
+        # Reset button
+        self.experiments_panel.btn_pareto.setEnabled(True)
+        self.experiments_panel.btn_pareto.setText("🔍 Analiz Başlat")
+        
+        self.status_bar.showMessage(
+            f"Pareto analizi tamamlandı! {result.pareto_count} optimal çözüm bulundu.", 
+            5000
+        )
+        
+        print("[MainWindow] ParetoDialog oluşturuluyor...")
+        from src.ui.components.pareto_dialog import ParetoDialog
+        dialog = ParetoDialog(result, self)
+        print("[MainWindow] Dialog gösteriliyor...")
+        dialog.exec_()
+        print("[MainWindow] Dialog kapatıldı.")
+    
+    def _on_pareto_error(self, error_msg):
+        """Pareto analizi hata durumu."""
+        self.experiments_panel.btn_pareto.setEnabled(True)
+        self.experiments_panel.btn_pareto.setText("🔍 Analiz Başlat")
+        self.status_bar.showMessage("Pareto analizi başarısız!", 3000)
+        QMessageBox.critical(self, "Hata", error_msg)
+    
+    def _on_run_ilp_benchmark(self):
+        """ILP benchmark karşılaştırması başlat (QThread ile)."""
+        if not self._check_graph():
+            QMessageBox.warning(self, "Uyarı", "Önce bir graf yükleyin veya oluşturun!")
+            return
+        
+        source = self.control_panel.spin_source.value()
+        dest = self.control_panel.spin_dest.value()
+        weights = self.control_panel._get_weights()
+        
+        if source == dest:
+            QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
+            return
+        
+        # UI feedback
+        self.status_bar.showMessage("ILP benchmark başlatılıyor...")
+        self.experiments_panel.btn_ilp.setEnabled(False)
+        self.experiments_panel.btn_ilp.setText("Benchmark...")
+        
+        # Start worker thread
+        self.current_worker = ILPBenchmarkWorker(
+            self.graph_service.graph,
+            source,
+            dest,
+            weights
+        )
+        self.current_worker.progress.connect(lambda msg: self.status_bar.showMessage(msg))
+        self.current_worker.finished.connect(self._on_ilp_finished)
+        self.current_worker.error.connect(self._on_ilp_error)
+        self.current_worker.start()
+    
+    def _on_ilp_finished(self, data):
+        """ILP benchmark tamamlandığında."""
+        print("[MainWindow] _on_ilp_finished çağrıldı!")
+        
+        # Reset button
+        self.experiments_panel.btn_ilp.setEnabled(True)
+        self.experiments_panel.btn_ilp.setText("📊 Benchmark Başlat")
+        
+        self.status_bar.showMessage("ILP benchmark tamamlandı!", 5000)
+        
+        # Yeni dialog ile göster
+        from src.ui.components.ilp_benchmark_dialog import ILPBenchmarkDialog
+        dialog = ILPBenchmarkDialog(data, self)
+        dialog.exec_()
+    
+    def _on_ilp_error(self, error_msg):
+        """ILP benchmark hata durumu."""
+        self.experiments_panel.btn_ilp.setEnabled(True)
+        self.experiments_panel.btn_ilp.setText("📊 Benchmark Başlat")
+        self.status_bar.showMessage("ILP benchmark başarısız!", 3000)
+        QMessageBox.critical(self, "Hata", error_msg)

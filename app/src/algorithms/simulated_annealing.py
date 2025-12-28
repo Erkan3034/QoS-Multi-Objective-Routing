@@ -79,6 +79,8 @@ class SimulatedAnnealing:
         self.graph = graph
         self.params = params if params is not None else SAParams(seed=seed)
 
+        # [FIX] Store seed for stochastic behavior check
+        self._seed = self.params.seed
         if self.params.seed is not None:
             random.seed(self.params.seed)
 
@@ -155,7 +157,14 @@ class SimulatedAnnealing:
         # [FIX] Reset random state if no seed was set to ensure stochastic behavior
         if not hasattr(self, '_seed') or self._seed is None:
             import time as time_module
-            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
+            if not hasattr(self, '_call_counter'):
+                self._call_counter = 0
+            self._call_counter += 1
+            seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
+            random.seed(seed_val)
+            print(f"[SA] Stokastik mod - seed={seed_val}, call={self._call_counter}")
+        else:
+            print(f"[SA] Deterministik mod - seed={self._seed}")
 
         self.fitness_history.clear()
         self.temperature_history.clear()
@@ -256,6 +265,7 @@ class SimulatedAnnealing:
             T *= float(self.params.cooling_rate)
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
+        print(f"[SA] Sonuç: path={best_path[:5]}...{best_path[-2:] if len(best_path)>5 else ''}, len={len(best_path)}, fitness={best_fit:.4f}")
         return SAResult(
             path=best_path,
             fitness=best_fit,

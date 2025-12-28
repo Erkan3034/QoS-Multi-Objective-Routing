@@ -21,11 +21,7 @@ class ControlPanel(QWidget):
     # Sinyaller
     generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
     load_csv_requested = pyqtSignal()  # CSV yükleme isteği
-    generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
-    load_csv_requested = pyqtSignal()  # CSV yükleme isteği
-    optimize_requested = pyqtSignal(str, int, int, dict, float, dict)  # algorithm, source, dest, weights, bandwidth_demand, hyperparameters
-    compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
-    reset_requested = pyqtSignal()
+    optimize_requested = pyqtSignal(str, int, int, dict, float, dict, int)  # algorithm, source, dest, weights, bandwidth_demand, hyperparameters, n_runs
     compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
     reset_requested = pyqtSignal()
     demand_selected = pyqtSignal(int, int, int)  # source, dest, demand_mbps
@@ -395,6 +391,31 @@ class ControlPanel(QWidget):
         
         opt_content_layout.addWidget(algo_container)
         
+        # Multi-Start Settings
+        multistart_layout = QHBoxLayout()
+        multistart_layout.setSpacing(8)
+        
+        lbl_multistart = QLabel("Çoklu Çalıştırma:")
+        lbl_multistart.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 11px;")
+        lbl_multistart.setToolTip("Algoritmayı N kez çalıştırıp en iyi sonucu döndürür")
+        multistart_layout.addWidget(lbl_multistart)
+        
+        self.spin_multistart = QSpinBox()
+        self.spin_multistart.setRange(1, 30)
+        self.spin_multistart.setValue(1)  # Default: single run
+        self.spin_multistart.setFixedHeight(26)
+        self.spin_multistart.setFixedWidth(55)
+        self.spin_multistart.setStyleSheet(self._input_style())
+        self.spin_multistart.setToolTip("1 = Tek çalıştırma, 5+ = Multi-start (en iyi sonuç)")
+        multistart_layout.addWidget(self.spin_multistart)
+        
+        lbl_runs = QLabel("çalıştırma")
+        lbl_runs.setStyleSheet("color: #64748b; font-size: 11px;")
+        multistart_layout.addWidget(lbl_runs)
+        
+        multistart_layout.addStretch()
+        opt_content_layout.addLayout(multistart_layout)
+        
         # Optimize button
         self.btn_optimize = QPushButton("Optimize Et")
         self.btn_optimize.setFixedHeight(34) 
@@ -693,7 +714,8 @@ class ControlPanel(QWidget):
             self.spin_dest.value(),
             self._get_weights(),
             demand,
-            self.hyperparameters
+            self.hyperparameters,
+            self.spin_multistart.value()  # n_runs for multi-start
         )
 
     

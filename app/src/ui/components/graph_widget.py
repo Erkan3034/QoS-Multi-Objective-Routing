@@ -455,23 +455,16 @@ class GraphWidget(QWidget):
             # Position
             pos_list.append(self.positions_3d[node])
             
-            # Degree-based calculations
-            deg = degrees.get(node, 0)
-            norm_deg = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
-            
-            # Size: Base 8 + up to 25 based on importance
-            size = 8 + (norm_deg * 25)
+            # Uniform size for all nodes
+            size = 15
             size_list.append(size)
             
-            # Color: Gradient from Green (Edge) to Blue/Cyan (Core)
-            # Edge (Low deg): [34, 197, 94] (Green)
-            # Core (High deg): [59, 130, 246] (Blue)
-            r = 34 + (59 - 34) * norm_deg
-            g = 197 + (130 - 197) * norm_deg
-            b = 94 + (246 - 94) * norm_deg
-            
-            # Add some transparency to inner nodes to see structure
-            alpha = 0.8 + (0.2 * norm_deg) # Core nodes more opaque
+            # Uniform gray color for all nodes
+            # light gray: [143, 150, 121]
+            r = 143
+            g = 150
+            b = 121
+            alpha = 0.9
             
             color_list.append([r/255.0, g/255.0, b/255.0, alpha])
 
@@ -744,19 +737,15 @@ class GraphWidget(QWidget):
         sizes = []
         
         for node in self.positions.keys():
-            # Degree centrality logic
-            deg = degrees.get(node, 0)
-            norm_deg = (deg - min_degree) / (max_degree - min_degree) if max_degree > min_degree else 0.5
-            
-            # Size: Base 10 + up to 15 based on importance
-            size = 10 + (norm_deg * 15)
+            # Uniform size for all nodes
+            size = 12
             sizes.append(size)
             
-            # Color: Gradient from Green (Edge) to Blue (Core)
-            r = int(34 + (59 - 34) * norm_deg)
-            g = int(197 + (130 - 197) * norm_deg)
-            b = int(94 + (246 - 94) * norm_deg)
-            alpha = int(200 + (55 * norm_deg))
+            # Uniform gray color for all nodes(2D)
+            r = 143
+            g = 150
+            b = 121
+            alpha = 220
             
             brushes.append(pg.mkBrush(r, g, b, alpha))
 

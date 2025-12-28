@@ -112,19 +112,33 @@
 - Yönerge: "Öğrenciler, bu ağırlıkları değiştirerek farklı optimizasyon sonuçları bulmalıdır"
 - **Durum:** UI'da farklı ağırlıklar denenebilir ama **raporlanmış karşılaştırmalı analiz** yok
 
-### 4. Ölçeklenebilirlik Analizi ⚠️ **OPTIONAL AMA EKSİK**
+### 4. Ölçeklenebilirlik Analizi ✅ **TAMAMLANDI**
 
 - Yönerge: "ölçeklenebilirlik analizi (opsiyonel)"
-- `ScalabilityWorker` ve `ScalabilityDialog` mevcut ama dokümante edilmiş sonuç raporu yok
+- ✅ `ScalabilityWorker` ve `ScalabilityDialog` mevcut
+- ✅ 1000+ düğüm desteği eklendi (`scalability_analyzer.py`)
+- ✅ Hafıza profiling (tracemalloc)
+- 📄 Dokümantasyon: `Documents/Olceklenebilirlik_Analizi.md`
 
-### 5. Pareto Optimalite Analizi 🔶 **EK PUAN**
+### 5. Pareto Optimalite Analizi ✅ **TAMAMLANDI** (EK PUAN)
 
 - Yönerge: "Ek puan: Çok-amaçlı Pareto"
-- **Durum:** Implementasyon yok - Sadece Weighted Sum kullanılmış
+- ✅ `pareto_analyzer.py` modülü eklendi
+- ✅ `pareto_dialog.py` UI bileşeni eklendi
+- ✅ Dominasyon kontrolü ve Pareto sınırı hesaplama
+- 📄 Dokümantasyon: `Documents/Pareto_Optimalite_Analizi.md`
 
-### 6. GNN-RL, >1000 Düğüm, ILP Karşılaştırması 🔶 **EK PUAN**
+### 6. ILP Karşılaştırması ✅ **TAMAMLANDI** (EK PUAN)
 
-- **Durum:** Bunlar uygulanmamış (opsiyonel ek puanlar)
+- Yönerge: "Ek puan: ILP karşılaştırması"
+- ✅ `ilp_solver.py` modülü eklendi
+- ✅ Optimality gap hesaplama
+- ✅ Benchmark karşılaştırma aracı
+- 📄 Dokümantasyon: `Documents/ILP_Karsilastirmasi.md`
+
+### 7. GNN-RL 🔶 **UYGULANMADI** (OPSİYONEL)
+
+- **Durum:** Bu özellik uygulanmadı - opsiyonel bonus
 
 ---
 

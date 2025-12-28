@@ -114,6 +114,8 @@ class ParticleSwarmOptimization:
         self.progress_every = max(int(progress_every), 1)
         self.ui_yield_ms = float(ui_yield_ms)
 
+        # [FIX] Store seed for stochastic behavior check
+        self._seed = seed
         if seed is not None:
             random.seed(seed)
 
@@ -175,7 +177,14 @@ class ParticleSwarmOptimization:
         # [FIX] Reset random state if no seed was set to ensure stochastic behavior
         if not hasattr(self, '_seed') or self._seed is None:
             import time as time_module
-            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
+            if not hasattr(self, '_call_counter'):
+                self._call_counter = 0
+            self._call_counter += 1
+            seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
+            random.seed(seed_val)
+            print(f"[PSO] Stokastik mod - seed={seed_val}, call={self._call_counter}")
+        else:
+            print(f"[PSO] Deterministik mod - seed={self._seed}")
 
         self.gbest_history.clear()
         self.avg_fitness_history.clear()
@@ -248,6 +257,7 @@ class ParticleSwarmOptimization:
                 self._maybe_yield_ui()
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
+        print(f"[PSO] Sonuç: path={gbest_path[:5]}...{gbest_path[-2:] if len(gbest_path)>5 else ''}, len={len(gbest_path)}, fitness={gbest_fitness:.4f}")
         return PSOResult(path=gbest_path, fitness=gbest_fitness, iteration=best_iteration, computation_time_ms=elapsed_ms)
 
 

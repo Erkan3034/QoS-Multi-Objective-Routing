@@ -263,18 +263,20 @@ class OptimizedACO:
         # [FIX] Reset random state FIRST - before any other operations
         # This ensures different results even with same weights (exploration)
         if not hasattr(self, '_seed') or self._seed is None:
-            # Use system time + process ID + weights hash for non-deterministic results
-            # [FIX] Ensure seed is within valid range [0, 2**32 - 1] for numpy
+            # Use nanoseconds + process ID + call counter for truly unique seed
             import time as time_module
             import os
-            weights_hash = abs(hash(str(sorted(weights.items()))))  # abs() to ensure positive
-            time_component = int(time_module.time() * 1000000) % (2**31)
-            pid_component = os.getpid() % (2**16)  # Limit PID component
-            seed_value = (time_component + pid_component + weights_hash) % (2**32 - 1)
-            # Ensure seed is positive and within valid range
+            if not hasattr(self, '_call_counter'):
+                self._call_counter = 0
+            self._call_counter += 1
+            weights_hash = abs(hash(str(sorted(weights.items()))))
+            seed_value = (time_module.time_ns() + os.getpid() + self._call_counter + weights_hash) % (2**32 - 1)
             seed_value = max(0, min(seed_value, 2**32 - 1))
             random.seed(seed_value)
             np.random.seed(seed_value)
+            print(f"[ACO] Stokastik mod - seed={seed_value}, call={self._call_counter}")
+        else:
+            print(f"[ACO] Deterministik mod - seed={self._seed}")
         
         # [FIX] Reset statistics to ensure clean state for new optimization
         self.best_fitness_history = []
@@ -458,6 +460,8 @@ class OptimizedACO:
             except Exception:
                 best_path = [source, destination]
                 best_fitness = float('inf')
+        
+        print(f"[ACO] Sonuç: path={best_path[:5]}...{best_path[-2:] if len(best_path)>5 else ''}, len={len(best_path)}, fitness={best_fitness:.4f}")
         
         return ACOResult(
             path=best_path,

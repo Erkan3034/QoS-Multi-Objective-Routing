@@ -292,11 +292,17 @@ class GeneticAlgorithm:
         # This ensures different results even with same weights (exploration)
         # If seed was set in __init__, it will remain deterministic (for experiments)
         if not hasattr(self, '_seed') or self._seed is None:
-            # [FIX] Use system time + process ID to seed random for non-deterministic results
-            # This ensures each optimization run explores different paths
-            # Combining time and PID ensures uniqueness even in rapid successive calls
+            # [FIX] Use nanoseconds + process ID + call counter for truly random seed
+            # time_ns() provides nanosecond precision for uniqueness
             import time as time_module
-            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
+            if not hasattr(self, '_call_counter'):
+                self._call_counter = 0
+            self._call_counter += 1
+            seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
+            random.seed(seed_val)
+            print(f"[GA] Stokastik mod - seed={seed_val}, call={self._call_counter}")
+        else:
+            print(f"[GA] Deterministik mod - seed={self._seed}")
         
         population = self._initialize_population(source, destination, bandwidth_demand)
         
@@ -358,8 +364,11 @@ class GeneticAlgorithm:
         
         elapsed = (time.perf_counter() - start_time) * 1000
         
+        result_path = best_individual if best_individual else [source, destination]
+        print(f"[GA] Sonuç: path={result_path[:5]}...{result_path[-2:] if len(result_path)>5 else ''}, len={len(result_path)}, fitness={best_fitness:.4f}")
+        
         return GAResult(
-            path=best_individual if best_individual else [source, destination],
+            path=result_path,
             fitness=best_fitness,
             generation=best_generation,
             computation_time_ms=elapsed,

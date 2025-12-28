@@ -97,6 +97,8 @@ class QLearning:
         self.epsilon_end = epsilon_end or settings.QL_EPSILON_END
         self.epsilon_decay = epsilon_decay or settings.QL_EPSILON_DECAY
         
+        # [FIX] Store seed for stochastic behavior check
+        self._seed = seed
         if seed is not None:
             random.seed(seed)
         
@@ -139,8 +141,14 @@ class QLearning:
         # [FIX] Reset random state if no seed was set to ensure stochastic behavior
         if not hasattr(self, '_seed') or self._seed is None:
             import time as time_module
-            import os
-            random.seed(int(time_module.time() * 1000000) % (2**31) + os.getpid())
+            if not hasattr(self, '_call_counter'):
+                self._call_counter = 0
+            self._call_counter += 1
+            seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
+            random.seed(seed_val)
+            print(f"[Q-Learning] Stokastik mod - seed={seed_val}, call={self._call_counter}")
+        else:
+            print(f"[Q-Learning] Deterministik mod - seed={self._seed}")
         
         # Q-table'ı sıfırla
         self.q_table = defaultdict(lambda: defaultdict(float))
@@ -186,6 +194,8 @@ class QLearning:
             total_reward = 0
         
         elapsed_time = (time.perf_counter() - start_time) * 1000
+        
+        print(f"[Q-Learning] Sonuç: path={best_path[:5]}...{best_path[-2:] if len(best_path)>5 else ''}, len={len(best_path)}, reward={total_reward:.4f}")
         
         return QLResult(
             path=best_path,

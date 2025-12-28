@@ -149,7 +149,7 @@
 
 1. **📝 Proje Raporu (PDF) Eksik** - Bu kritik bir gereksinim. Yönerge açıkça "Proje Raporu (PDF): Son Teslim: [ 7 Ocak 2026 ]" diyor.
 
-2. **🎥 Demo Videosu Belirsiz** - "Başarısızlıklar.mp4" var ama projenin **başarılı çalışmasını** gösteren demo videosu olup olmadığı belirsiz.
+2. **🎥 Demo Videosu** - Yok 
 
 3. **📊 Karşılaştırmalı Sonuç Raporu Eksik** - Farklı ağırlıklarla elde edilen sonuçların yazılı analizi dokümante edilmemiş.
 
@@ -169,7 +169,7 @@
 ## 💡 Güçlü Yönler (Teslim Destekleyici)
 
 - ✅ **Kod kalitesi çok iyi** - İyi yorumlanmış, modüler yapı
-- ✅ **6 farklı algoritma** - Yönergenin 3 katı
+- ✅ **6 farklı algoritma** 
 - ✅ **Profesyonel UI** - 2D/3D görselleştirme
 - ✅ **Kapsamlı test altyapısı** - 25 senaryo, istatistikler
 - ✅ **Dokümantasyon altyapısı** - `Documents/` klasöründe detaylı teknik dökümanlar

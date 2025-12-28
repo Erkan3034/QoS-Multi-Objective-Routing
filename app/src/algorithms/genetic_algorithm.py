@@ -1,111 +1,215 @@
 """
-Genetic Algorithm for Multi-Objective QoS Routing (v2.4 - Normalized & Optimized)
+=============================================================================
+GENETİK ALGORİTMA - QoS Çok Amaçlı Yönlendirme (v2.4 - Normalize & Optimize)
+=============================================================================
 
-Değişiklik Logu (Network Engineering Team):
+MODÜL AÇIKLAMASI:
+-----------------
+Bu modül, ağ yönlendirme problemleri için Genetik Algoritma (GA) implementasyonunu
+içerir. Darwin'in evrim teorisinden esinlenerek tasarlanmıştır.
+
+TEMEL KAVRAMLAR:
+----------------
+1. KROMOZOMlar (Bireyler): Olası çözümler - burada ağ yolları
+2. POPÜLASYON: Bir nesildeki tüm bireylerin kümesi
+3. FITNESS: Bir bireyin uygunluk değeri (düşük = daha iyi)
+4. SEÇİLİM (Selection): En iyi bireylerin üreme için seçilmesi
+5. ÇAPRAZLAMA (Crossover): İki ebeveynden yeni bireyler oluşturma
+6. MUTASYON (Mutation): Rastgele değişikliklerle çeşitlilik sağlama
+7. ELİTİZM (Elitism): En iyi bireylerin korunması
+
+EVRİM DÖNGÜSÜ:
+--------------
+1. Başlangıç popülasyonu oluştur
+2. Her bireyin fitness'ını hesapla
+3. En iyi bireyleri seç (tournament selection)
+4. Çaprazlama ile yeni bireyler üret
+5. Mutasyon uygula
+6. Yakınsama kontrolü yap
+7. Adım 2'ye dön (veya sonlandır)
+
+NORMALİZASYON AÇIKLAMASI:
+-------------------------
+Farklı metriklerin (ms, %, hop) adil yarışabilmesi için tüm değerler
+0.0 - 1.0 arasına normalize edilir. Bu sayede Delay ve Reliability
+matematiksel olarak eşit ağırlığa sahip olur.
+
+PROJE UYUMLULUĞU:
+-----------------
+[PROJECT COMPLIANCE] Proje yönergesine uygun formüller:
+- TotalDelay = Σ(LinkDelay) + Σ(ProcessingDelay) [k ≠ S, D]
+- ReliabilityCost = Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]
+- ResourceCost = Σ(1Gbps / Bandwidth)
+
+Değişiklik Logu:
 - [CRITICAL] Fitness Fonksiyonu Normalize Edildi: 'Dominant Metric' problemi çözüldü.
-  Artık Delay (ms) ve Reliability (%) birbiriyle matematiksel olarak adil yarışıyor.
 - [PERF] Singleton Pool ve Adaptive Scaling korundu.
 - [DOC] Geliştirici notları eklendi.
 
-Yazar: Network Engineering Lead
 """
 
-import random
-import time
-import logging
-import threading
-import atexit
+# =============================================================================
+# KÜTÜPHANE İMPORTLARI
+# =============================================================================
+import random           # Rastgele sayı üretimi (stokastik operatörler için)
+import time             # Zaman ölçümü (performans değerlendirmesi)
+import logging          # Loglama (debug ve hata takibi)
+import threading        # Thread güvenliği (pool yönetimi için)
+import atexit           # Program sonlandırma hook'ları
 from typing import List, Dict, Any, Optional, Tuple, Callable
-from dataclasses import dataclass, field
-from functools import lru_cache, partial
-import networkx as nx
-import multiprocessing
-import os
+from dataclasses import dataclass, field  # Veri sınıfları için dekoratörler
+from functools import lru_cache, partial  # Caching ve partial fonksiyonlar
+import networkx as nx   # Graf veri yapısı ve algoritmaları
+import multiprocessing  # Paralel işlem havuzu
+import os               # İşletim sistemi fonksiyonları
 
-# Servis Import Kontrolü
+# =============================================================================
+# SERVİS İMPORT KONTROLÜ
+# =============================================================================
+# Modül bağımsız olarak test edilebilmesi için try-except bloğu
 try:
-    from ..services.metrics_service import MetricsService
-    from ..core.config import settings
+    from ..services.metrics_service import MetricsService  # Metrik hesaplama servisi
+    from ..core.config import settings  # Proje konfigürasyonu
 except ImportError:
+    # Bağımsız çalışma için varsayılan değerler
     MetricsService = None
     class Settings:
-        GA_POPULATION_SIZE = 200
-        GA_GENERATIONS = 100
-        GA_MUTATION_RATE = 0.05
-        GA_CROSSOVER_RATE = 0.8
-        GA_ELITISM = 0.1
+        \"\"\"Varsayılan GA parametreleri (import başarısız olduğunda kullanılır)\"\"\"
+        GA_POPULATION_SIZE = 200   # Popülasyon boyutu
+        GA_GENERATIONS = 100       # Nesil sayısı
+        GA_MUTATION_RATE = 0.05    # Mutasyon oranı
+        GA_CROSSOVER_RATE = 0.8    # Çaprazlama oranı
+        GA_ELITISM = 0.1           # Elitizm oranı
     settings = Settings()
 
+# Logger oluştur
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# NORMALIZATION CONSTANTS (MÜHENDİSLİK REFERANS DEĞERLERİ)
-# ---------------------------------------------------------------------------
-# Arkadaşlar, burası önemli. Farklı birimleri (ms, %, hop) toplayabilmek için
-# her birini 0.0 ile 1.0 arasına sıkıştırmamız lazım.
-# Bu değerler, ağımızdaki "Kabul Edilebilir En Kötü" değerlerdir.
-# ---------------------------------------------------------------------------
+# =============================================================================
+# NORMALİZASYON SABİTLERİ (Mühendislik Referans Değerleri)
+# =============================================================================
+# BURASI ÖNEMLİ!
+# Farklı birimleri (ms, %, hop) toplayabilmek için her birini 0.0-1.0 arasına
+# sıkıştırmamız gerekiyor. Bu değerler ağımızdaki "Kabul Edilebilir En Kötü"
+# değerlerdir. Bu eşiklerin üzerindeki değerler tam ceza puanı (1.0) alır.
+# =============================================================================
 class NormConfig:
-    MAX_DELAY_MS = 200.0        # 200ms üzeri bizim için "1.0" yani tam ceza puanıdır.
-    MAX_HOP_COUNT = 20.0        # 20 hop üzeri çok verimsizdir.
-    RELIABILITY_PENALTY = 10.0  # Paket kaybını (Hata) 10 kat cezalandırıyoruz ki Delay'in altında ezilmesin.
+    """Normalizasyon Konfigurasyonu - Metriklerin adil karşılaştırılması için"""
+    MAX_DELAY_MS = 200.0        # 200ms üzeri "1.0" = tam ceza puanı
+    MAX_HOP_COUNT = 20.0        # 20 hop üzeri çok verimsiz kabul edilir
+    RELIABILITY_PENALTY = 10.0  # Paket kaybını 10 kat cezalandır (Delay ezmesin)
 
+
+# =============================================================================
+# GENETİK ALGORİTMA KONFIGURASYON SINIFI
+# =============================================================================
 class GAConfig:
-    """Genetik Algoritma Konfigürasyonu"""
-    PARALLEL_AUTO_ENABLE_NODES = 500
-    PARALLEL_MIN_POPULATION = 200
-    SMALL_NET_GUIDED_RATIO = 0.3
-    SMALL_NET_MAX_INIT_ATTEMPTS = 5
-    LARGE_NET_GUIDED_RATIO = 0.5
-    LARGE_NET_MAX_INIT_ATTEMPTS = 10
-    POOL_CHUNKSIZE = 15
+    """
+    Genetik Algoritma Konfigurasyonu
+    
+    Bu sınıf, GA'nın çalışma parametrelerini içerir.
+    Büyük ağlarda paralel işleme otomatik devreye girer.
+    """
+    # Paralel işleme eşikleri
+    PARALLEL_AUTO_ENABLE_NODES = 500   # 500+ düğümde otomatik paralel mod
+    PARALLEL_MIN_POPULATION = 200      # Paralel işleme için min popülasyon
+    
+    # Küçük ağ parametreleri (<500 düğüm)
+    SMALL_NET_GUIDED_RATIO = 0.3       # %30 akıllı başlangıç
+    SMALL_NET_MAX_INIT_ATTEMPTS = 5    # Popülasyon doldurmak için max deneme
+    
+    # Büyük ağ parametreleri (>=500 düğüm)
+    LARGE_NET_GUIDED_RATIO = 0.5       # %50 akıllı başlangıç
+    LARGE_NET_MAX_INIT_ATTEMPTS = 10   # Daha fazla deneme
+    
+    # Paralel işleme optimizasyonu
+    POOL_CHUNKSIZE = 15                # IPC overhead'ı düşürmek için
 
-# ---------------------------------------------------------------------------
-# FITNESS WORKER (CORE LOGIC)
-# ---------------------------------------------------------------------------
+# =============================================================================
+# FITNESS WORKER FONKSİYONU (Ana Hesaplama Mantığı)
+# =============================================================================
 def _fitness_worker(path_list: List[int], graph: nx.Graph, weights: Dict[str, float], bw_demand: float) -> float:
     """
-    Burası algoritmanın kalbi. Eskiden ham değerleri topluyorduk, bu yüzden
-    Delay (örn: 50ms) Reliability'i (örn: 0.01) eziyordu.
+    Bir yolun fitness (uygunluk) değerini hesaplar.
     
-    Şimdi 'Elma ile Armut'u kıyaslayabilmek için Normalizasyon yapıyoruz.
+    Bu fonksiyon paralel işleme için bağımsız olarak çalışabilir.
+    Multiprocessing pool tarafından çağrılır.
+    
+    [PROJECT COMPLIANCE] Proje yönergesine uygun formüller:
+    - TotalDelay = Σ(LinkDelay) + Σ(ProcessingDelay) where k ≠ S, D
+    - ReliabilityCost = Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]
+    - ResourceCost = Σ(1Gbps / Bandwidth)
+    
+    Args:
+        path_list: Değerlendirilecek yol (düğüm ID listesi)
+        graph: NetworkX graf objesi
+        weights: Metrik ağırlıkları {'delay': 0.33, 'reliability': 0.33, 'resource': 0.34}
+        bw_demand: Bant genişliği talebi (Mbps) - 0 ise kısıt yok
+    
+    Returns:
+        float: Ağırlıklı maliyet (0.0-1.0 arası, düşük = iyi)
+               float('inf') dönerse yol geçersiz veya kısıt ihlali var
     """
+    import math  # Lokal import (multiprocessing uyumluluğu için)
+    
     try:
-        total_delay = 0.0
-        total_rel = 1.0
-        min_bw = float('inf')
+        # =========== METRİK DEĞİŞKENLERİNİ BAŞLAT ===========
+        total_delay = 0.0          # Toplam gecikme (ms)
+        reliability_cost = 0.0     # Güvenilirlik maliyeti (-log toplamı)
+        min_bw = float('inf')      # Minimum bant genişliği (darboğaz)
+        raw_resource_cost = 0.0    # Ham kaynak maliyeti
         
-        # 1. Ham Verileri Topla
+        # =========== KAYNAK VE HEDEF BELİRLEME ===========
+        # [PROJECT COMPLIANCE] S (source) ve D (destination) düğümleri
+        # ProcessingDelay hesabında hariç tutulacak
+        source = path_list[0]       # İlk düğüm = Kaynak
+        destination = path_list[-1] # Son düğüm = Hedef
+        
+        # =========== DÜĞÜM METRİKLERİ ===========
+        for node in path_list:
+            # [PROJECT COMPLIANCE] ProcessingDelay: Sadece ARA düğümler
+            # Kaynak ve Hedef düğümlerin işleme gecikmesi sayilmaz
+            if node != source and node != destination:
+                pd = graph.nodes[node].get('processing_delay', 0.0)
+                total_delay += float(pd)
+            
+            # [PROJECT COMPLIANCE] NodeReliability: TÜM düğümler dahil
+            # -log formülü ile güvenilirlik maliyeti hesaplanır
+            nr = float(graph.nodes[node].get('reliability', 0.99))
+            reliability_cost += -math.log(max(nr, 0.001))  # 0'a bölme önleme
+        
+        # =========== KENAR METRİKLERİ ===========
         for i in range(len(path_list) - 1):
-            u, v = path_list[i], path_list[i+1]
+            u, v = path_list[i], path_list[i+1]  # Kenarın iki ucu
             edge_data = graph[u][v]
             
+            # Link Delay (gecikme)
             total_delay += edge_data.get('delay', 1.0)
-            total_rel *= edge_data.get('reliability', 0.99)
-            min_bw = min(min_bw, edge_data.get('bandwidth', 1000.0))
+            
+            # Link Reliability (güvenilirlik)
+            er = float(edge_data.get('reliability', 0.99))
+            reliability_cost += -math.log(max(er, 0.001))
+            
+            # Bandwidth (bant genişliği)
+            bw = float(edge_data.get('bandwidth', 1000.0))
+            min_bw = min(min_bw, bw)  # Darboğazı bul
+            
+            # [PROJECT COMPLIANCE] ResourceCost = 1Gbps / Bandwidth
+            raw_resource_cost += (1000.0 / max(bw, 1.0))
 
-        # 2. Hard Constraint: Bant Genişliği
-        # Eğer boru hattı darsa (bandwidth yetersizse), o yolun hiçbir değeri yoktur.
+        # =========== SERT KISIT KONTROLÜ ===========
+        # Bant genişliği talebi karşılanamıyorsa yol geçersiz
         if bw_demand > 0 and min_bw < bw_demand:
-            return float('inf')
+            return float('inf')  # Geçersiz yol
 
-        # 3. NORMALİZASYON (Adil Puanlama)
-        # ---------------------------------------------------------
-        
-        # Gecikme Skoru: 50ms / 200ms = 0.25 puan
+        # =========== NORMALİZASYON ===========
+        # Tüm metrikleri 0.0-1.0 arasına normalize et
         norm_delay = min(total_delay / NormConfig.MAX_DELAY_MS, 1.0)
-        
-        # Güvenilirlik Skoru: (1 - 0.99) = 0.01 Hata.
-        # Bunu 10 ile çarpıyoruz (0.1 puan) ki Delay'in yanında sinek gibi kalmasın.
-        # Güvenilirlik bizim için kritik!
-        unreliability = 1.0 - total_rel
-        norm_rel = min(unreliability * NormConfig.RELIABILITY_PENALTY, 1.0)
-        
-        # Kaynak Skoru: 5 Hop / 20 Hop = 0.25 puan
-        norm_resource = min(len(path_list) / NormConfig.MAX_HOP_COUNT, 1.0)
+        norm_rel = min(reliability_cost / 10.0, 1.0)
+        norm_resource = min(raw_resource_cost / 200.0, 1.0)
 
-        # 4. Ağırlıklı Toplam Maliyet
-        # Artık kullanıcı %50 Güvenilirlik seçerse, algoritma gerçekten onu dinler.
+        # =========== AĞIRLIKLI TOPLAM ===========
+        # Kullanıcı ağırlıklarına göre metrikleri birleştir
         cost = (weights['delay'] * norm_delay) + \
                (weights['reliability'] * norm_rel) + \
                (weights['resource'] * norm_resource)
@@ -113,7 +217,7 @@ def _fitness_worker(path_list: List[int], graph: nx.Graph, weights: Dict[str, fl
         return cost
 
     except Exception:
-        return float('inf')
+        return float('inf')  # Hata durumunda geçersiz yol
 
 # ---------------------------------------------------------------------------
 # DATA CLASSES

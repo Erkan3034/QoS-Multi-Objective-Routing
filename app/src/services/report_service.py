@@ -1,32 +1,88 @@
 """
-Report Generation Service - PDF ve PNG export işlemleri
+=============================================================================
+RAPOR OLUŞTURMA SERVİSİ - PDF ve PNG Export
+=============================================================================
 
-Bu modül optimizasyon sonuçlarını profesyonel raporlara dönüştürür.
-"""
-import os
-import datetime
-from typing import Dict, List, Optional, Any
-from dataclasses import dataclass
+MODÜL AÇIKLAMASI:
+-----------------
+Bu modül, optimizasyon sonuçlarını profesyonel PDF raporlarına dönüştürür.
+Kullanıcılar sonuçlarını belgeleyebilir ve paylaşabilir.
 
-# PDF generation
-try:
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4
-    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-    from reportlab.lib.units import cm, mm
-    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
-    from reportlab.lib.enums import TA_CENTER, TA_LEFT
-    from reportlab.pdfbase import pdfmetrics
-    from reportlab.pdfbase.ttfonts import TTFont
-    REPORTLAB_AVAILABLE = True
+OLUŞTURULAN RAPORLAR:
+---------------------
+1. TEKİL SONUÇ RAPORU (generate_pdf_report):
+   - Algoritma bilgileri
+   - Ağırlık konfigürasyonu
+   - Optimizasyon sonuçları (delay, reliability, cost)
+   - Bulunan yol
+   - Graf görselleştirmesi (varsa)
+   - Yakınsama grafiği (varsa)
+
+2. KARŞILAŞTIRMA RAPORU (generate_comparison_report):
+   - Birden fazla algoritmanın sonuçlarını karşılaştırır
+   - Tablo formatında metrikler
+   - En iyi algoritma vurgusu
+
+KULLANILAN KÜTÜPHANELER:
+------------------------
+- reportlab: PDF oluşturma
+- PIL (Pillow): Görüntü işleme
+
+FONT DESTEĞİ:
+-------------
+Türkçe karakterler için DejaVu Sans fontu tercih edilir.
+Bulunamazsa Helvetica (Türkçe desteği yok) kullanılır.
+
+KULLANIM ÖRNEĞİ:
+---------------
+    from services.report_service import get_report_service, ReportData
     
-    # Register Turkish-compatible fonts
+    service = get_report_service()
+    data = ReportData(
+        algorithm_name="Genetic Algorithm",
+        source=0, destination=249,
+        path=[0, 15, 89, 249],
+        ...
+    )
+    service.generate_pdf_report(data, "rapor.pdf")
+"""
+
+# =============================================================================
+# KÜTÜPHANE İMPORTLARI
+# =============================================================================
+import os                 # Dosya sistemi işlemleri
+import datetime           # Tarih/saat bilgisi
+from typing import Dict, List, Optional, Any  # Tip belirteçleri
+from dataclasses import dataclass  # Veri sınıfları
+
+
+# =============================================================================
+# PDF OLUŞTURMA KÜTÜPHANESİ (reportlab)
+# =============================================================================
+# reportlab yüklü değilse PDF oluşturma devre dışı kalır
+try:
+    from reportlab.lib import colors                    # Renk tanımları
+    from reportlab.lib.pagesizes import A4              # Sayfa boyutu
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle  # Stiller
+    from reportlab.lib.units import cm, mm              # Ölçü birimleri
+    from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, Image
+    from reportlab.lib.enums import TA_CENTER, TA_LEFT  # Hizalama
+    from reportlab.pdfbase import pdfmetrics            # Font yönetimi
+    from reportlab.pdfbase.ttfonts import TTFont        # TrueType font desteği
+    
+    REPORTLAB_AVAILABLE = True  # PDF oluşturma aktif
+    
+    # =========================================================================
+    # TÜRKÇE KARAKTER DESTEĞİ İÇİN FONT KAYDI
+    # =========================================================================
+    # DejaVu Sans: Türkçe karakterleri (ş, ğ, ü, ö, ı, ç) destekler
+    # Farklı işletim sistemlerinde farklı konumlarda bulunabilir
     import sys
     FONT_REGISTERED = False
-    FONT_NAME = 'DejaVu'
-    FONT_NAME_BOLD = 'DejaVu-Bold'
+    FONT_NAME = 'DejaVu'           # Normal font
+    FONT_NAME_BOLD = 'DejaVu-Bold' # Kalın font
     
-    # Try to find DejaVu Sans font (comes with most systems)
+    # İşletim sistemine göre olası font yolları
     font_paths = [
         # Windows
         'C:/Windows/Fonts/DejaVuSans.ttf',
@@ -45,6 +101,7 @@ try:
         '/Library/Fonts/Arial Unicode.ttf',
     ]
     
+    # Normal fontu kaydet
     for font_path in font_paths:
         if os.path.exists(font_path):
             try:
@@ -54,6 +111,7 @@ try:
             except Exception:
                 continue
     
+    # Kalın fontu kaydet
     for font_path in font_bold_paths:
         if os.path.exists(font_path):
             try:
@@ -62,17 +120,21 @@ try:
             except Exception:
                 continue
     
+    # Font bulunamazsa varsayılan kullan (Türkçe desteği yok)
     if not FONT_REGISTERED:
-        # Fallback: use Helvetica (no Turkish support)
         FONT_NAME = 'Helvetica'
         FONT_NAME_BOLD = 'Helvetica-Bold'
         
 except ImportError:
+    # reportlab yüklü değil - PDF oluşturma devre dışı
     REPORTLAB_AVAILABLE = False
     FONT_NAME = 'Helvetica'
     FONT_NAME_BOLD = 'Helvetica-Bold'
 
-# Image handling
+
+# =============================================================================
+# GÖRÜNTÜ İŞLEME KÜTÜPHANESİ (Pillow)
+# =============================================================================
 try:
     from PIL import Image as PILImage
     PIL_AVAILABLE = True

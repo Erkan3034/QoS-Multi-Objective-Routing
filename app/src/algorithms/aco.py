@@ -1,55 +1,123 @@
 """
-Advanced Ant Colony Optimization (ACO) for QoS Multi-Objective Routing
+=============================================================================
+GELİŞMİŞ KARINCA KOLONİSİ OPTİMİZASYONU (ACO) - QoS Çok Amaçlı Yönlendirme
+=============================================================================
 
-Gelişmiş Özellikler:
-- Adaptive parameter tuning (α, β, ρ)
-- Multi-population strategy (Elite + Common ants)
-- ε-greedy exploration-exploitation balance
-- 2-opt local search optimization
-- Pheromone diffusion mechanism
-- Non-uniform initial pheromone distribution
-- Dynamic pheromone update strategies
-- Candidate list restriction
-- Min-Max pheromone bounds
-- Rank-based pheromone deposit
+MODÜL AÇIKLAMASI:
+-----------------
+Bu modül, ağ yönlendirme problemleri için Karınca Kolonisi Optimizasyonu (ACO)
+algoritmasının gelişmiş bir implementasyonunu içerir. Doğadaki karıncaların
+yiyecek bulma davranışından esinlenerek tasarlanmıştır.
 
-Kaynaklar:
-- Dorigo et al. "Ant Colony Optimization"
+TEMEL KAVRAMLAR:
+----------------
+1. FEROMON (Pheromone): Karıncaların yolları işaretlemek için bıraktığı kimyasal
+   iz. İyi yollar daha fazla feromon biriktirir.
+
+2. HEURİSTİK (η): Bir kenarın "çekiciliğini" belirleyen değer. Düşük gecikme,
+   yüksek bant genişliği ve güvenilirlik çekiciliği artırır.
+
+3. GEÇİŞ OLASILIGI: P(i,j) = (τ^α × η^β) / Σ(τ^α × η^β)
+   - τ: Feromon miktarı
+   - η: Heuristik değer
+   - α: Feromon etkisi (exploitation)
+   - β: Heuristik etkisi (exploration)
+
+4. BUHARLAŞMA (Evaporation): Her iterasyonda feromonların azalması.
+   Kötü yolların unutulmasını sağlar.
+
+GELİŞMİŞ ÖZELLİKLER:
+--------------------
+- Adaptive Parameter Tuning: α, β, ρ parametreleri iterasyon boyunca dinamik ayarlanır
+- Multi-Population Strategy: Elite (sömürü odaklı) ve Common (keşif odaklı) karıncalar
+- ε-greedy Selection: Exploration/Exploitation dengesi için rastgele seçim şansı
+- 2-opt Local Search: Bulunan yolların lokal iyileştirmesi
+- Min-Max Pheromone Bounds: Feromon değerlerinin sınırlandırılması (erken yakınsama önleme)
+- Rank-based Deposit: En iyi yollara daha fazla feromon bırakma
+
+PROJE UYUMLULUĞU:
+-----------------
+[PROJECT COMPLIANCE] Proje yönergesine uygun formüller:
+- ReliabilityCost(P) = Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]
+- ResourceCost(P) = Σ(1Gbps / Bandwidth)
+- TotalDelay(P) = Σ(LinkDelay) + Σ(ProcessingDelay) [S ve D hariç]
+
+KAYNAKLAR:
+----------
+- Dorigo et al. "Ant Colony Optimization" (1996)
 - IEACO (Intelligently Enhanced ACO)
 - FACO (Focused ACO)
 - Hybrid ACO/PSO techniques
 """
 
-import random
-import time
-import math
-import numpy as np
-import networkx as nx
+# =============================================================================
+# KÜTÜPHANE İMPORTLARI
+# =============================================================================
+import random          # Rastgele sayı üretimi (stokastik seçimler için)
+import time            # Zaman ölçümü (performans değerlendirmesi)
+import math            # Matematiksel fonksiyonlar (log, exp vb.)
+import numpy as np     # Sayısal hesaplamalar (vektör/matris işlemleri)
+import networkx as nx  # Graf veri yapısı ve algoritmaları
 from typing import List, Dict, Any, Optional, Tuple, Callable
-from dataclasses import dataclass
-from collections import defaultdict, deque
-from enum import Enum
+from dataclasses import dataclass      # Veri sınıfları için dekoratör
+from collections import defaultdict, deque  # Özel koleksiyon tipleri
+from enum import Enum  # Numaralandırma tipi
 
-from src.services.metrics_service import MetricsService
-from src.core.config import settings
+# Proje modülleri
+from src.services.metrics_service import MetricsService  # Metrik hesaplama servisi
+from src.core.config import settings  # Proje konfigürasyonu
 
 
+# =============================================================================
+# KARINCA TİPLERİ ENUM'U
+# =============================================================================
 class AntType(Enum):
-    """Karınca tipleri."""
-    ELITE = "elite"
-    COMMON = "common"
+    """
+    Karınca Tipleri Enumerasyonu
+    
+    ACO algoritmasında iki tip karınca kullanılır:
+    1. ELITE: Sömürü (exploitation) odaklı karıncalar
+       - Bilinen iyi yolları takip etme eğilimindedir
+       - Daha az rastgele hareket eder
+       - Feromon izlerine daha çok güvenir
+    
+    2. COMMON: Keşif (exploration) odaklı karıncalar
+       - Yeni yolları keşfetme eğilimindedir
+       - Daha fazla rastgele hareket eder
+       - Lokal optimumdan kaçınmaya yardımcı olur
+    """
+    ELITE = "elite"    # Sömürü odaklı elit karınca
+    COMMON = "common"  # Keşif odaklı sıradan karınca
 
 
+# =============================================================================
+# ACO SONUÇ VERİ SINIFI
+# =============================================================================
 @dataclass
 class ACOResult:
-    """ACO sonuç veri sınıfı."""
-    path: List[int]
-    fitness: float
-    iteration: int
-    computation_time_ms: float
-    convergence_data: Optional[Dict[str, List[float]]] = None
+    """
+    ACO Algoritması Sonuç Veri Sınıfı
+    
+    Optimizasyon tamamlandğında döndürülen sonuçları tutar.
+    
+    Attributes:
+        path (List[int]): Bulunan en iyi yol (düğüm ID'leri listesi)
+        fitness (float): Yolun fitness değeri (düşük = daha iyi)
+        iteration (int): En iyi çözümün bulunduğu iterasyon numarası
+        computation_time_ms (float): Toplam hesaplama süresi (milisaniye)
+        convergence_data (Optional[Dict]): Yakınsama verileri (grafik için)
+            - best_fitness: Her iterasyondaki en iyi fitness
+            - avg_fitness: Her iterasyondaki ortalama fitness  
+            - diversity: Popülasyon çeşitliliği
+    """
+    path: List[int]                  # Bulunan en iyi yol
+    fitness: float                   # Yolun ağırlıklı maliyeti
+    iteration: int                   # En iyi sonucun bulunduğu iterasyon
+    computation_time_ms: float       # Hesaplama süresi (ms)
+    convergence_data: Optional[Dict[str, List[float]]] = None  # Yakınsama verileri
     
     def to_dict(self) -> Dict[str, Any]:
+        """Sonuçları JSON-uyumlu dictionary formatına çevirir."""
         result = {
             "path": self.path,
             "fitness": round(self.fitness, 6),
@@ -631,13 +699,19 @@ class OptimizedACO:
     ) -> float:
         """
         Multi-objective heuristic: η = (1 / cost) × (1 / distance_to_dest)
+        
+        [PROJECT COMPLIANCE] Includes both edge and node reliability with -log formula.
         """
         edge = self.graph.edges[from_node, to_node]
         
         # Edge cost
         delay_cost = edge['delay'] / 100
-        rel_cost = -math.log(max(edge['reliability'], 0.01))
-        res_cost = 1000 / max(edge['bandwidth'], 1) / 50
+        # [PROJECT COMPLIANCE] -log(LinkReliability) + -log(NodeReliability)
+        edge_rel = max(edge['reliability'], 0.01)
+        node_rel = max(self.graph.nodes[to_node].get('reliability', 0.99), 0.01)
+        rel_cost = -math.log(edge_rel) + -math.log(node_rel)
+        # [PROJECT COMPLIANCE] ResourceCost = 1Gbps / Bandwidth
+        res_cost = (1000 / max(edge['bandwidth'], 1)) / 100
         
         edge_cost = (
             weights['delay'] * delay_cost +
@@ -645,17 +719,7 @@ class OptimizedACO:
             weights['resource'] * res_cost
         )
         
-        # [FIX] Distance calculation removed for performance
-        # nx.shortest_path_length is VERY expensive when called thousands of times
-        # Use simple hop-based estimation instead
-        # For large graphs, this is a major bottleneck
-        # try:
-        #     distance = nx.shortest_path_length(self.graph, to_node, destination)
-        #     distance_factor = 1.0 / (1 + distance)
-        # except nx.NetworkXNoPath:
-        #     distance_factor = 0.001
-        
-        # Simple heuristic: assume destination is reachable (optimistic)
+        # Simple heuristic for speed (distance calculation removed for performance)
         distance_factor = 0.5  # Fixed value for speed
         
         # Combined heuristic

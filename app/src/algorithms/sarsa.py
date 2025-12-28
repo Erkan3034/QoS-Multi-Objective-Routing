@@ -356,12 +356,19 @@ class SARSA:
         to_node: int,
         weights: Dict[str, float]
     ) -> float:
-        """Tek adım maliyetini hesaplar."""
+        """Tek adım maliyetini hesaplar.
+        
+        [PROJECT COMPLIANCE] Includes both edge and node reliability with -log formula.
+        """
         edge = self.graph.edges[from_node, to_node]
         
         delay_cost = edge['delay'] / 100
-        rel_cost = -math.log(edge['reliability'])
-        res_cost = 1000 / edge['bandwidth'] / 50
+        # [PROJECT COMPLIANCE] -log(LinkReliability) + -log(NodeReliability)
+        edge_rel = max(edge['reliability'], 0.001)
+        node_rel = max(self.graph.nodes[to_node].get('reliability', 0.99), 0.001)
+        rel_cost = (-math.log(edge_rel) + -math.log(node_rel)) / 2  # Normalize per hop
+        # [PROJECT COMPLIANCE] ResourceCost = 1Gbps / Bandwidth
+        res_cost = (1000 / max(edge['bandwidth'], 1)) / 100
         
         return (
             weights['delay'] * delay_cost +

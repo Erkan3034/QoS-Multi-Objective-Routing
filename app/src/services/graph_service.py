@@ -1,48 +1,155 @@
 """
-Graf Oluşturma ve Yönetim Servisi
+=============================================================================
+GRAF OLUŞTURMA VE YÖNETİM SERVİSİ
+=============================================================================
 
-Bu modülde Erdős–Rényi modeli kullanarak rastgele ağ topolojileri oluşturuyoruz
-ve CSV dosyalarından graf verisi yüklüyoruz.
+MODÜL AÇIKLAMASI:
+-----------------
+Bu modül, ağ topolojilerinin oluşturulması ve yönetilmesinden sorumludur.
+İki farklı veri kaynağı desteklenir:
+
+1. CSV DOSYALARINDAN YÜKLEME:
+   - NodeData.csv: Düğüm bilgileri (ID, işleme gecikmesi, güvenilirlik)
+   - EdgeData.csv: Kenar bilgileri (kaynak, hedef, bant genişliği, gecikme, güvenilirlik)
+   - DemandData.csv: Talep çiftleri (kaynak, hedef, talep miktarı Mbps)
+
+2. RASTGELE GRAF OLUŞTURMA:
+   - Erdős–Rényi G(n, p) modeli kullanılır
+   - n: Düğüm sayısı
+   - p: İki düğüm arasında kenar olma olasılığı
+   - Grafın bağlı (connected) olması garanti edilir
+
+AĞ MODELİ ÖZELLİKLERİ (Proje Yönergesine Uygun):
+------------------------------------------------
+DÜĞÜM ÖZELLİKLERİ:
+  - processing_delay (s_ms): Düğümün işleme gecikmesi (milisaniye)
+  - reliability (r_node): Düğümün güvenilirlik değeri (0.0 - 1.0)
+
+KENAR ÖZELLİKLERİ:
+  - bandwidth (capacity_mbps): Bant genişliği kapasitesi (Mbps)
+  - delay (delay_ms): Link gecikmesi (milisaniye)
+  - reliability (r_link): Link güvenilirlik değeri (0.0 - 1.0)
+
+KULLANIM ÖRNEĞİ:
+---------------
+    # CSV'den yükleme
+    service = GraphService(seed=42)
+    graph = service.load_from_csv("data/graph_data")
+    demands = service.get_demands()
+    
+    # Rastgele graf oluşturma
+    service = GraphService(seed=42)
+    graph = service.generate_graph(n_nodes=50, p=0.1)
 """
-import os
-import networkx as nx
-import numpy as np
-from typing import Optional, Dict, Any, List, Tuple
-from dataclasses import dataclass
 
+# =============================================================================
+# KÜTÜPHANE İMPORTLARI
+# =============================================================================
+import os                              # Dosya sistemi işlemleri
+import networkx as nx                  # Graf veri yapısı ve algoritmaları
+import numpy as np                     # Rastgele sayı üretimi için
+from typing import Optional, Dict, Any, List, Tuple  # Tip belirteçleri
+from dataclasses import dataclass      # Veri sınıfları için dekoratör
+
+# Proje konfigürasyonu (varsayılan değerler)
 from src.core.config import settings
 
 
+# =============================================================================
+# TALEP ÇİFTİ VERİ SINIFI
+# =============================================================================
 @dataclass
 class DemandPair:
-    """Talep çifti veri sınıfı."""
-    source: int
-    destination: int
-    demand_mbps: int
+    """
+    Talep Çifti Veri Sınıfı
+    
+    Ağda bir kaynak-hedef çifti arasındaki trafik talebini temsil eder.
+    CSV dosyasından yüklenen demand verileri bu sınıfta saklanır.
+    
+    Attributes:
+        source (int): Kaynak düğüm ID'si
+        destination (int): Hedef düğüm ID'si
+        demand_mbps (int): Talep edilen bant genişliği (Megabit/saniye)
+    
+    Example:
+        DemandPair(source=0, destination=249, demand_mbps=100)
+        # 0 numaralı düğümden 249'a 100 Mbps trafik talebi
+    """
+    source: int          # Kaynak düğüm ID'si
+    destination: int     # Hedef düğüm ID'si
+    demand_mbps: int     # Talep miktarı (Mbps)
 
 
+# =============================================================================
+# GRAF SERVİSİ ANA SINIFI
+# =============================================================================
 class GraphService:
-    """Graf oluşturma ve yönetim servisi. 
-    Burada graf oluşturma, graf verisi yükleme, graf bağlantılılık kontrolü, 
-    graf düğümlerinin pozisyonlarını hesaplamak gibi işlemler yapılıyor."""
+    """
+    Graf Oluşturma ve Yönetim Servisi
+    
+    Bu sınıf, ağ topolojisinin oluşturulması, yüklenmesi ve yönetilmesinden
+    sorumludur. Ana fonksiyonlar:
+    
+    1. CSV'den Graf Yükleme: load_from_csv()
+    2. Rastgele Graf Oluşturma: generate_graph()
+    3. Graf Bilgisi Sorgulama: get_graph_info(), has_path(), get_neighbors()
+    4. Görselleştirme Desteği: get_node_positions()
+    
+    Attributes:
+        seed (int): Rastgele sayı üreteci için seed (tekrarlanabilirlik)
+        graph (nx.Graph): NetworkX graf objesi
+        demands (List[DemandPair]): Talep çiftleri listesi
+        _rng: NumPy rastgele sayı üreteci
+        _data_source (str): Veri kaynağı ("generated" veya "csv")
+    """
     
     def __init__(self, seed: Optional[int] = None):
+        """
+        GraphService constructor.
+        
+        Args:
+            seed: Rastgele sayı üreteci seed değeri.
+                  None ise settings'ten varsayılan değer alınır.
+                  Aynı seed ile aynı graf oluşturulur (tekrarlanabilirlik).
+        """
+        # Seed değerini ayarla (tekrarlanabilir sonuçlar için önemli)
         self.seed = seed if seed is not None else settings.RANDOM_SEED
-        self.graph: Optional[nx.Graph] = None
-        self.demands: List[DemandPair] = []
+        
+        # Graf ve talep verileri için başlangıç değerleri
+        self.graph: Optional[nx.Graph] = None    # Henüz graf oluşturulmadı
+        self.demands: List[DemandPair] = []      # Talep listesi boş
+        
+        # NumPy rastgele sayı üreteci (modern API)
         self._rng = np.random.default_rng(self.seed)
+        
+        # Veri kaynağı takibi
         self._data_source: str = "generated"  # "generated" veya "csv"
+    # =========================================================================
+    # CSV'DEN GRAF YÜKLEME METODLARI
+    # =========================================================================
     
     def load_from_csv(self, data_dir: str) -> nx.Graph:
         """
         CSV dosyalarından graf yükler.
         
+        Bu metod, proje yönergesinde belirtilen formatta hazırlanmış
+        CSV dosyalarını okuyarak NetworkX graf objesi oluşturur.
+        
+        Beklenen dosyalar:
+        - NodeData.csv: node_id;s_ms;r_node (düğüm verileri)
+        - EdgeData.csv: src;dst;capacity_mbps;delay_ms;r_link (kenar verileri)
+        - DemandData.csv: src;dst;demand_mbps (talep verileri)
+        
         Args:
             data_dir: graph_data klasörünün yolu
             
         Returns:
-            Yüklenen NetworkX graf
+            nx.Graph: Yüklenen NetworkX graf objesi
+            
+        Raises:
+            FileNotFoundError: CSV dosyaları bulunamazsa
         """
+        # CSV dosya yollarını oluştur
         node_file = os.path.join(data_dir, "BSM307_317_Guz2025_TermProject_NodeData.csv")
         edge_file = os.path.join(data_dir, "BSM307_317_Guz2025_TermProject_EdgeData.csv")
         demand_file = os.path.join(data_dir, "BSM307_317_Guz2025_TermProject_DemandData.csv")
@@ -52,24 +159,41 @@ class GraphService:
             if not os.path.exists(f):
                 raise FileNotFoundError(f"CSV dosyası bulunamadı: {f}")
         
-        # Yeni graf oluştur
+        # Boş NetworkX grafı oluştur (yönsüz graf)
         G = nx.Graph()
         
-        # Node verilerini yükle
+        # ADIM 1: Düğüm (Node) verilerini yükle
+        # Her düğüm: processing_delay ve reliability özelliklerine sahip
         self._load_nodes_from_csv(G, node_file)
         
-        # Edge verilerini yükle
+        # ADIM 2: Kenar (Edge) verilerini yükle
+        # Her kenar: bandwidth, delay ve reliability özelliklerine sahip
         self._load_edges_from_csv(G, edge_file)
         
-        # Demand verilerini yükle
+        # ADIM 3: Talep (Demand) verilerini yükle
+        # Kaynak-hedef çiftleri ve bant genişliği talepleri
         self._load_demands_from_csv(demand_file)
         
+        # Grafı sakla ve veri kaynağını işaretle
         self.graph = G
         self._data_source = "csv"
         return G
     
     def _parse_turkish_float(self, value: str) -> float:
-        """Türkçe formatlı sayıları parse eder (virgül -> nokta)."""
+        """
+        Türkçe formatlı ondalık sayıları Python float'a çevirir.
+        
+        Türkçe'de ondalık ayırıcı virgül (,) kullanılır.
+        Python'da nokta (.) kullanılır.
+        
+        Örnek: "0,95" -> 0.95
+        
+        Args:
+            value: Türkçe formatlı sayı string'i ("0,95")
+            
+        Returns:
+            float: Python float değeri (0.95)
+        """
         return float(value.replace(',', '.'))
     
     def _load_nodes_from_csv(self, G: nx.Graph, filepath: str) -> None:

@@ -4,9 +4,9 @@ Sonuçlar Paneli Widget - Optimizasyon sonuçlarını gösterir
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QGroupBox, QLabel,
     QTableWidget, QTableWidgetItem, QHeaderView, QFrame, QGridLayout,
-    QScrollArea, QSizePolicy
+    QScrollArea, QSizePolicy, QPushButton
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QColor, QFont, QPixmap
 from typing import Dict, List, Optional
 from dataclasses import dataclass
@@ -126,9 +126,15 @@ class ComparisonRow(QWidget):
 class ResultsPanel(QWidget):
     """Sonuçlar paneli widget'ı."""
     
+    # Signal for PDF export request
+    export_pdf_requested = pyqtSignal()
+    export_comparison_pdf_requested = pyqtSignal()
+    
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(400) # Increased width as requested
+        self.setFixedWidth(400)
+        self.current_result = None  # Store current result for export
+        self.comparison_results = []  # Store comparison results
         self._setup_ui()
     
     def _setup_ui(self):
@@ -305,6 +311,27 @@ class ResultsPanel(QWidget):
         layout = QHBoxLayout(self.footer_container)
         layout.setContentsMargins(0, 10, 0, 0)
         
+        # PDF Export Button
+        self.btn_export_pdf = QPushButton("PDF")
+        self.btn_export_pdf.setFixedSize(50, 28)
+        self.btn_export_pdf.setCursor(Qt.PointingHandCursor)
+        self.btn_export_pdf.setToolTip("Sonuçları PDF olarak kaydet")
+        self.btn_export_pdf.setStyleSheet("""
+            QPushButton {
+                background-color: #dc2626;
+                color: white;
+                font-weight: bold;
+                font-size: 11px;
+                border: none;
+                border-radius: 6px;
+            }
+            QPushButton:hover {
+                background-color: #ef4444;
+            }
+        """)
+        self.btn_export_pdf.clicked.connect(self._on_export_pdf_clicked)
+        layout.addWidget(self.btn_export_pdf)
+        
         lbl_title = QLabel("Hesaplama Süresi:")
         lbl_title.setStyleSheet("color: #94a3b8; font-size: 11px;")
         layout.addWidget(lbl_title)
@@ -317,6 +344,13 @@ class ResultsPanel(QWidget):
         
         parent_layout.addWidget(self.footer_container)
         self.footer_container.hide()
+    
+    def _on_export_pdf_clicked(self):
+        """PDF export butonu tıklandığında."""
+        if self.comparison_results:
+            self.export_comparison_pdf_requested.emit()
+        elif self.current_result:
+            self.export_pdf_requested.emit()
 
     def _setup_placeholder(self):
         self.placeholder = QWidget()
@@ -382,6 +416,10 @@ class ResultsPanel(QWidget):
         self.canvas.draw()
 
     def show_single_result(self, result: OptimizationResult):
+        # Store result for PDF export
+        self.current_result = result
+        self.comparison_results = []
+        
         if hasattr(self, 'placeholder'): self.placeholder.hide()
         self.compare_widget.hide()
         self.metrics_container.show()
@@ -408,6 +446,10 @@ class ResultsPanel(QWidget):
         self.lbl_time_value.setText(f"{result.computation_time_ms:.2f} ms")
 
     def show_comparison(self, results: List[OptimizationResult]):
+        # Store results for PDF export
+        self.current_result = None
+        self.comparison_results = results
+        
         if hasattr(self, 'placeholder'): self.placeholder.hide()
         self.metrics_container.hide()
         self.path_group.hide()

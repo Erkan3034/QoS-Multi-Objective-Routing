@@ -619,6 +619,10 @@ class MainWindow(QMainWindow):
         # ve sistem mevcut kaynak/hedef için yeniden optimizasyon yapar.
         # ====================================================================
         self.graph_widget.edge_broken.connect(self._on_edge_broken)
+        
+        # Results panel PDF export
+        self.results_panel.export_pdf_requested.connect(self._on_export_pdf)
+        self.results_panel.export_comparison_pdf_requested.connect(self._on_export_comparison_pdf)
 
     def _on_compare_two_algorithms(self, algo1: str, algo2: str):
         """İki algoritmayı kıyasla."""
@@ -1301,3 +1305,141 @@ class MainWindow(QMainWindow):
         self.experiments_panel.btn_ilp.setText("📊 Benchmark Başlat")
         self.status_bar.showMessage("ILP benchmark başarısız!", 3000)
         QMessageBox.critical(self, "Hata", error_msg)
+    
+    # =========================================================================
+    # PDF EXPORT HANDLERS
+    # =========================================================================
+    
+    def _on_export_pdf(self):
+        """Tek optimizasyon sonucunu PDF olarak kaydet."""
+        result = self.results_panel.current_result
+        if not result:
+            QMessageBox.warning(self, "Uyarı", "Kaydedilecek sonuç bulunamadı.")
+            return
+        
+        try:
+            from src.services.report_service import get_report_service, ReportData, REPORTLAB_AVAILABLE
+            
+            if not REPORTLAB_AVAILABLE:
+                QMessageBox.warning(
+                    self, "Uyarı", 
+                    "PDF oluşturmak için reportlab kütüphanesi gerekli.\n"
+                    "Kurulum: pip install reportlab"
+                )
+                return
+            
+            # Dosya kaydetme dialogu
+            from PyQt5.QtWidgets import QFileDialog
+            import os
+            
+            default_name = f"QoS_Rapor_{result.algorithm.replace(' ', '_')}.pdf"
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, "PDF Olarak Kaydet", default_name, "PDF Dosyaları (*.pdf)"
+            )
+            
+            if not filepath:
+                return
+            
+            # Geçici olarak graf görüntüsü kaydet
+            import tempfile
+            graph_image_path = None
+            try:
+                with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp:
+                    graph_image_path = tmp.name
+                    self.graph_widget.export_as_png(graph_image_path)
+            except Exception as e:
+                print(f"Graf görüntüsü kaydedilemedi: {e}")
+                graph_image_path = None
+            
+            # Rapor verisi oluştur
+            weights = self.control_panel._get_weights()
+            info = self.graph_service.get_graph_info() if self.graph_service else {}
+            
+            report_data = ReportData(
+                algorithm_name=result.algorithm,
+                source=self.control_panel.spin_source.value(),
+                destination=self.control_panel.spin_dest.value(),
+                path=result.path,
+                total_delay=result.total_delay,
+                total_reliability=result.total_reliability,
+                resource_cost=result.resource_cost,
+                weighted_cost=result.weighted_cost,
+                computation_time_ms=result.computation_time_ms,
+                weights=weights,
+                graph_image_path=graph_image_path,
+                node_count=info.get('node_count', 0),
+                edge_count=info.get('edge_count', 0)
+            )
+            
+            # PDF oluştur
+            service = get_report_service()
+            service.generate_pdf_report(report_data, filepath)
+            
+            # Geçici dosyayı temizle
+            if graph_image_path and os.path.exists(graph_image_path):
+                os.unlink(graph_image_path)
+            
+            self.status_bar.showMessage(f"PDF kaydedildi: {filepath}", 5000)
+            QMessageBox.information(self, "Başarılı", f"Rapor kaydedildi:\n{filepath}")
+            
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self, "Hata", f"PDF oluşturma hatası:\n{str(e)}")
+            traceback.print_exc()
+    
+    def _on_export_comparison_pdf(self):
+        """Karşılaştırma sonuçlarını PDF olarak kaydet."""
+        results = self.results_panel.comparison_results
+        if not results:
+            QMessageBox.warning(self, "Uyarı", "Kaydedilecek karşılaştırma sonucu bulunamadı.")
+            return
+        
+        try:
+            from src.services.report_service import get_report_service, REPORTLAB_AVAILABLE
+            
+            if not REPORTLAB_AVAILABLE:
+                QMessageBox.warning(
+                    self, "Uyarı", 
+                    "PDF oluşturmak için reportlab kütüphanesi gerekli.\n"
+                    "Kurulum: pip install reportlab"
+                )
+                return
+            
+            # Dosya kaydetme dialogu
+            from PyQt5.QtWidgets import QFileDialog
+            
+            default_name = "QoS_Karsilastirma_Raporu.pdf"
+            filepath, _ = QFileDialog.getSaveFileName(
+                self, "PDF Olarak Kaydet", default_name, "PDF Dosyaları (*.pdf)"
+            )
+            
+            if not filepath:
+                return
+            
+            # Sonuçları dict formatına dönüştür
+            results_data = []
+            for r in results:
+                results_data.append({
+                    'algorithm': r.algorithm,
+                    'total_delay': r.total_delay,
+                    'total_reliability': r.total_reliability,
+                    'resource_cost': r.resource_cost,
+                    'weighted_cost': r.weighted_cost,
+                    'computation_time_ms': r.computation_time_ms
+                })
+            
+            weights = self.control_panel._get_weights()
+            source = self.control_panel.spin_source.value()
+            dest = self.control_panel.spin_dest.value()
+            
+            # PDF oluştur
+            service = get_report_service()
+            service.generate_comparison_report(results_data, filepath, source, dest, weights)
+            
+            self.status_bar.showMessage(f"PDF kaydedildi: {filepath}", 5000)
+            QMessageBox.information(self, "Başarılı", f"Rapor kaydedildi:\n{filepath}")
+            
+        except Exception as e:
+            import traceback
+            QMessageBox.critical(self, "Hata", f"PDF oluşturma hatası:\n{str(e)}")
+            traceback.print_exc()

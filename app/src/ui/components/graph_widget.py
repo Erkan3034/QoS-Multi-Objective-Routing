@@ -1269,3 +1269,41 @@ class GraphWidget(QWidget):
                 self._draw_graph_3d()
             else:
                 self._draw_graph()
+    
+    def export_as_png(self, filepath: str) -> bool:
+        """
+        Graf görüntüsünü PNG olarak kaydeder.
+        
+        Args:
+            filepath: Kayıt yolu
+            
+        Returns:
+            Başarılı ise True
+        """
+        try:
+            if self.is_3d_mode and self.view_3d:
+                # 3D view için OpenGL screenshot
+                img = self.view_3d.grabFramebuffer()
+                img.save(filepath)
+            else:
+                # 2D view için PyQtGraph export
+                from PyQt5.QtGui import QImage, QPainter
+                from PyQt5.QtCore import QRectF
+                
+                # Create image with widget size
+                width = self.plot_widget.width()
+                height = self.plot_widget.height()
+                
+                image = QImage(width, height, QImage.Format_ARGB32)
+                image.fill(Qt.transparent)
+                
+                painter = QPainter(image)
+                self.plot_widget.render(painter)
+                painter.end()
+                
+                image.save(filepath)
+            
+            return True
+        except Exception as e:
+            print(f"PNG export hatası: {e}")
+            return False

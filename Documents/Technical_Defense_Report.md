@@ -588,6 +588,6 @@ GA_ELITISM = 0.08
 
 ---
 
-Son güncellenme: 29 Aralık 2024
+Son güncellenme: 29 Aralık 2025
 
 Erkan TURGUT

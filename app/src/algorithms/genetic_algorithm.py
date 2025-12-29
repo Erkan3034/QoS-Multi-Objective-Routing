@@ -74,7 +74,7 @@ except ImportError:
     # Bağımsız çalışma için varsayılan değerler
     MetricsService = None
     class Settings:
-        \"\"\"Varsayılan GA parametreleri (import başarısız olduğunda kullanılır)\"\"\"
+        """Varsayılan GA parametreleri (import başarısız olduğunda kullanılır)""" 
         GA_POPULATION_SIZE = 200   # Popülasyon boyutu
         GA_GENERATIONS = 100       # Nesil sayısı
         GA_MUTATION_RATE = 0.05    # Mutasyon oranı

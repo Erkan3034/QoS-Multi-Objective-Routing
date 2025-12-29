@@ -166,6 +166,7 @@ def _fitness_worker(path_list: List[int], graph: nx.Graph, weights: Dict[str, fl
         destination = path_list[-1] # Son düğüm = Hedef
         
         # =========== DÜĞÜM METRİKLERİ ===========
+
         for node in path_list:
             # [PROJECT COMPLIANCE] ProcessingDelay: Sadece ARA düğümler
             # Kaynak ve Hedef düğümlerin işleme gecikmesi sayilmaz
@@ -174,13 +175,15 @@ def _fitness_worker(path_list: List[int], graph: nx.Graph, weights: Dict[str, fl
                 total_delay += float(pd)
             
             # [PROJECT COMPLIANCE] NodeReliability: TÜM düğümler dahil
-            # -log formülü ile güvenilirlik maliyeti hesaplanır
+            # -log formülü ile güvenilirlik maliyeti hesaplanır(düşük reliability daha fazla cezalandırır)
             nr = float(graph.nodes[node].get('reliability', 0.99))
             reliability_cost += -math.log(max(nr, 0.001))  # 0'a bölme önleme
         
-        # =========== KENAR METRİKLERİ ===========
+        # ===========================================
+        #              KENAR METRİKLERİ 
+        # ===========================================
         for i in range(len(path_list) - 1):
-            u, v = path_list[i], path_list[i+1]  # Kenarın iki ucu
+            u, v = path_list[i], path_list[i+1]  # Kenarın iki ucu(S ve D)
             edge_data = graph[u][v]
             
             # Link Delay (gecikme)

@@ -116,7 +116,8 @@ class QLearning:
         source: int,
         destination: int,
         weights: Dict[str, float] = None,
-        bandwidth_demand: float = 0.0
+        bandwidth_demand: float = 0.0,
+        progress_callback: Optional[callable] = None
     ) -> QLResult:
         """
         Optimal yolu bul.
@@ -157,6 +158,9 @@ class QLearning:
         
         epsilon = self.epsilon_start
         
+        # Progress callback için ayar
+        progress_every = max(1, self.episodes // 20)  # Her %5'te bir bildir
+        
         # Eğitim döngüsü
         for episode in range(self.episodes):
             episode_reward = self._run_episode(source, destination, weights, epsilon, bandwidth_demand)
@@ -165,6 +169,23 @@ class QLearning:
             
             # Epsilon decay
             epsilon = max(self.epsilon_end, epsilon * self.epsilon_decay)
+            
+            # Progress callback - ilerleme bildir
+            if progress_callback and (episode % progress_every == 0 or episode == self.episodes - 1):
+                try:
+                    # İki argüman: (iteration, best_value)
+                    progress_callback(episode, episode_reward)
+                except TypeError:
+                    try:
+                        # Dict formatı da dene
+                        progress_callback({
+                            'iteration': episode,
+                            'total': self.episodes,
+                            'epsilon': epsilon,
+                            'reward': episode_reward
+                        })
+                    except Exception:
+                        pass
         
         # En iyi yolu çıkar
         best_path = self._extract_best_path(source, destination, bandwidth_demand)

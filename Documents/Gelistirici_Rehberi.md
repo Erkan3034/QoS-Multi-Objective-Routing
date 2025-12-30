@@ -167,4 +167,4 @@ python main.py --seed 42
 
 ---
 
-> Erkan Turgut (30.12.2025)
+> Erkan Turgut (02.12.2025)

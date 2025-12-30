@@ -465,7 +465,7 @@ class OptimizedACO:
         # 3) Global-best bonus (3x ağırlık)
         # ----------------------------------------------------------------------
         if best and best_f != float('inf'):
-            # En iyi yola ekstra feromon bırak (pekiştirme 3 kat)
+            # En iyi yola ekstra feromon bırak (pekiştirme (3 kat))
             deposit = 3 * self.q / best_f
             
             for i in range(len(best) - 1):

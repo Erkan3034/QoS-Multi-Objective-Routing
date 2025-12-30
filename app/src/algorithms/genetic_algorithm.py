@@ -816,7 +816,7 @@ class GeneticAlgorithm:
 
 """
 Kod : ~370 satır
-Yorum : ~430 satır
+Yorum : ~430 satır 
 
 Erkan TURGUT
 """

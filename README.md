@@ -1,174 +1,95 @@
-# QoS Routing Optimizer v2.4
+# QoS Multi-Objective Routing Optimizer
 
-![Python](https://img.shields.io/badge/Python-3.8+-3776AB?logo=python&logoColor=white)
+![Python](https://img.shields.io/badge/Python-3.9+-3776AB?logo=python&logoColor=white)
 ![PyQt5](https://img.shields.io/badge/PyQt5-5.15+-41CD52?logo=qt&logoColor=white)
-![NetworkX](https://img.shields.io/badge/NetworkX-2.6+-orange)
+![NetworkX](https://img.shields.io/badge/NetworkX-3.1+-orange)
 ![License](https://img.shields.io/badge/License-Educational-blue)
-![Status](https://img.shields.io/badge/Status-Production--Ready-brightgreen)
 
-**Çok Amaçlı QoS Rotalama Optimizasyonu** — NP-Hard sınıfında yer alan Multi-Constraint QoS Routing problemini 6 farklı meta-sezgisel ve pekiştirmeli öğrenme algoritması ile çözen, gerçek zamanlı görselleştirme ve self-healing yeteneklerine sahip masaüstü uygulaması.
+**Çok Amaçlı QoS Rotalama Optimizasyonu** — NP-Hard Multi-Constraint QoS Routing problemini **6 farklı algoritma** ile çözen, gerçek zamanlı görselleştirme ve karşılaştırmalı deney yapabilme özelliklerine sahip masaüstü uygulaması.
 
-> Üç çelişen metriği (Gecikme, Güvenilirlik, Kaynak Kullanımı) aynı anda optimize ederek, ağ mühendislerine **enterprise-grade** rota planlama aracı sunar.
-
-![Screenshot](./Documents/screenshot.png)
+> Üç çelişen metriği (Gecikme, Güvenilirlik, Kaynak Kullanımı) aynı anda optimize eder.
 
 ---
 
 ## 📋 İçindekiler
 
 - [Temel Özellikler](#-temel-özellikler)
-- [Teknik Mimari](#-teknik-mimari)
 - [Desteklenen Algoritmalar](#-desteklenen-algoritmalar)
 - [Kurulum](#-kurulum)
 - [Kullanım](#-kullanım)
 - [Proje Yapısı](#-proje-yapısı)
-- [Gelişmiş Özellikler](#-gelişmiş-özellikler)
+- [Dokümantasyon](#-dokümantasyon)
+- [QoS Metrikleri](#-qos-metrikleri)
 - [Konfigürasyon](#-konfigürasyon)
 
 ---
 
 ## 🎯 Temel Özellikler
 
-### Normalization Engine (Dominant Metric Çözümü)
-
-Farklı birimlerdeki metrikleri (ms, %, hop) aynı denklemde toplayabilmek için **v2.4 Normalization** motoru geliştirilmiştir. Bu sayede kullanıcı ağırlıkları gerçekten etkili olur.
-
-```
-Problem: 50ms + 0.01 + 5 hop = Delay her zaman kazanır
-Çözüm:   0.25 + 0.10 + 0.25 = Dengeli katkı
-```
-
-**Referans Sabitleri:**
-| Metrik | Referans Maksimum | Gerçek Dünya Eşdeğeri |
-|--------|-------------------|------------------------|
-| Delay | 200 ms | Satellite/3G sınırı |
-| Hop Count | 20 hop | Pratik maksimum |
-| Reliability Penalty | 10x | Güvenilirlik hassasiyeti |
-
----
-
-### Chaos Monkey (Self-Healing Test)
-
-Graf üzerinde herhangi bir kenarı **orta tık** ile kırarak link arızası simülasyonu yapabilirsiniz. Sistem otomatik olarak:
-
-1. Kenarı graftan kaldırır
-2. Görsel güncelleme yapar (kırmızı kesikli çizgi)
-3. `edge_broken` sinyali emit eder
-4. Yeni rota hesaplar ve görselleştirir
-
-```python
-# Event-driven architecture
-self.graph_widget.edge_broken.connect(self._on_edge_broken)
-```
-
-Bu özellik, **MTTR (Mean Time To Recovery)** testleri için idealdir.
-
----
+### Multi-Start Optimization
+Stokastik algoritmalar farklı seed'lerle N kez çalıştırılıp en iyi sonuç seçilir.
 
 ### Real-Time Visualization
-
-| Bileşen | Açıklama |
+| Özellik | Açıklama |
 |---------|----------|
-| **Live Convergence Plot** | Nesil vs. Fitness grafiği, gerçek zamanlı güncellenir |
-| **Packet Animation** | Bulunan yol üzerinde hareket eden parçacıklar |
 | **2D/3D Toggle** | OpenGL destekli 3D görünüm |
-| **Interactive Tooltips** | Kenar/düğüm üzerinde hover ile detay görüntüleme |
+| **Convergence Plot** | Canlı yakınsama grafiği |
+| **Packet Animation** | Yol üzerinde animasyon |
+| **Interactive Graph** | Hover ile detay görüntüleme |
 
----
+### Chaos Monkey (Self-Healing)
+Orta tık ile kenar kırma, otomatik rota yeniden hesaplama.
 
-### ILP Benchmark
-
-- **ILP Solver:** PuLP kutuphanesi ile optimal cozum hesaplama
-- **Optimality Gap:** Meta-sezgisel sonuclari optimal cozumle karsilastirma
-
----
-
-## 🏗️ Teknik Mimari
-
-### Teknoloji Stack
-
-| Katman | Teknoloji | Amaç |
-|--------|-----------|------|
-| **Core** | Python 3.8+ | Ana programlama dili |
-| **Graph Engine** | NetworkX | Graf veri yapısı ve algoritmalar |
-| **UI Framework** | PyQt5 | Masaüstü arayüz |
-| **Visualization** | PyQtGraph + OpenGL | Performanslı 2D/3D render |
-| **Optimization** | PuLP | ILP çözücü (opsiyonel) |
-
-### Mimari Desenler
-
-- **Event-Driven (Signals/Slots):** PyQt sinyalleri ile loose coupling
-- **Worker Threads:** UI donmasını önlemek için QThread kullanımı
-- **Multiprocessing:** 500+ düğümlü ağlarda paralel fitness hesaplama
-- **Singleton Pool Pattern:** Process pool için bellek optimizasyonu
-- **LRU Cache:** Tekrarlanan shortest path hesaplamalarını önbelleğe alma
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                      MainWindow                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
-│  │ControlPanel │  │ GraphWidget │  │ ResultsPanel        │  │
-│  │             │  │  (2D/3D)    │  │ ConvergenceWidget   │  │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
-│         │                │                    │             │
-│         └────────────────┼────────────────────┘             │
-│                          ▼                                  │
-│              ┌───────────────────────┐                      │
-│              │  OptimizationWorker   │  ← QThread           │
-│              │  (Background Thread)  │                      │
-│              └───────────┬───────────┘                      │
-│                          ▼                                  │
-│              ┌───────────────────────┐                      │
-│              │  Algorithm Engine     │                      │
-│              │  (GA/ACO/PSO/SA/RL)   │                      │
-│              └───────────────────────┘                      │
-└─────────────────────────────────────────────────────────────┘
-```
+### Export & Reporting
+- PDF rapor export
+- PNG graf görüntüsü
+- JSON/CSV deney sonuçları
 
 ---
 
 ## 🧬 Desteklenen Algoritmalar
 
-### Meta-Sezgisel Algoritmalar
+### Meta-Sezgisel
 
-| Algoritma | Kısaltma | Açıklama | Öne Çıkan Özellik |
-|-----------|----------|----------|-------------------|
-| **Genetic Algorithm** | GA | Evrimsel seçilim, çaprazlama ve mutasyon | Adaptive mutation rate |
-| **Ant Colony Optimization** | ACO | Karınca feromon izleme davranışı | Pheromone persistence |
-| **Particle Swarm Optimization** | PSO | Sürü zekası ile parçacık hareketi | Global/Local best tracking |
-| **Simulated Annealing** | SA | Metalurji tavlama simülasyonu | Temperature scheduling |
+| Algoritma | Dosya | Açıklama |
+|-----------|-------|----------|
+| **Genetic Algorithm (GA)** | `genetic_algorithm.py` | Evrimsel seçilim, crossover, mutasyon |
+| **Ant Colony (ACO)** | `aco.py` | Karınca feromon takibi |
+| **Particle Swarm (PSO)** | `pso.py` | Sürü zekası |
+| **Simulated Annealing (SA)** | `simulated_annealing.py` | Tavlama benzetimi |
 
-### Pekiştirmeli Öğrenme Algoritmaları
+### Pekiştirmeli Öğrenme
 
-| Algoritma | Kısaltma | Açıklama | Öne Çıkan Özellik |
-|-----------|----------|----------|-------------------|
-| **Q-Learning** | QL | Off-policy değer fonksiyonu öğrenme | Epsilon-greedy exploration |
-| **SARSA** | SARSA | On-policy temporal difference | State-Action-Reward learning |
+| Algoritma | Dosya | Açıklama |
+|-----------|-------|----------|
+| **Q-Learning** | `q_learning.py` | Off-policy değer öğrenme |
+| **SARSA** | `sarsa.py` | On-policy TD learning |
+
+> 📖 **Detaylı açıklama:** [GA Akış Şeması](./Documents/GA_akis_semasi.md) | [ACO Akış Şeması](./Documents/Aco_akis_semasi.md)
 
 ---
 
 ## 🔧 Kurulum
 
 ### Gereksinimler
-
-- Python 3.8 veya üzeri
+- Python 3.9+
 - Windows / Linux / macOS
 
 ### Adımlar
 
 ```bash
 # 1. Repoyu klonlayın
-git clone https://github.com/your-username/QoS-Multi-Objective-Routing.git
+git clone https://github.com/Erkan3034/QoS-Multi-Objective-Routing.git
 cd QoS-Multi-Objective-Routing
 
-# 2. Sanal ortam oluşturun (önerilen)
-python -m venv .venv
+# 2. Sanal ortam oluşturun
+python -m venv venv
 
 # Windows
-.venv\Scripts\activate
+venv\Scripts\activate
 
 # Linux/macOS
-source .venv/bin/activate
+source venv/bin/activate
 
 # 3. Bağımlılıkları yükleyin
 cd app
@@ -177,15 +98,14 @@ pip install -r requirements.txt
 
 ### Bağımlılıklar
 
-```
-PyQt5>=5.15.0
-PyQtGraph>=0.12.0
-networkx>=2.6.0
-numpy>=1.20.0
-pyopengl>=3.1.0
-pydantic-settings>=2.0.0
-pulp>=2.7.0          # ILP solver (opsiyonel)
-matplotlib>=3.5.0    # Convergence plot
+```txt
+PyQt5>=5.15
+PyQtGraph>=0.12
+networkx>=3.1
+numpy>=1.24
+matplotlib>=3.7
+reportlab>=4.0
+Pillow>=10.0
 ```
 
 ---
@@ -202,26 +122,24 @@ python main.py
 ### Temel İş Akışı
 
 1. **Graf Yükleme**
-   - "Proje Verisini Yükle (CSV)" ile hazır veri seti
-   - Veya "Graf Oluştur" ile rastgele Erdős–Rényi topolojisi
+   - "Proje Verisini Yükle" → CSV dosyasından
+   - "Graf Oluştur" → Rastgele Erdős–Rényi topolojisi
 
 2. **Kaynak/Hedef Seçimi**
    - Sol tık = Kaynak (S) - Yeşil
    - Sağ tık = Hedef (D) - Kırmızı
-   - Veya kontrol panelinden spin box ile
 
 3. **Ağırlık Ayarları**
    - Gecikme / Güvenilirlik / Kaynak slider'ları
-   - Otomatik normalizasyon (toplam = 100%)
+   - Toplam otomatik 100%'e normalize edilir
 
 4. **Optimizasyon**
-   - Algoritma seçimi (GA, ACO, PSO, SA, Q-Learning, SARSA)
-   - "Optimize Et" butonu
-   - Canlı yakınsama grafiğini izleyin
+   - Algoritma seç → "Optimize Et"
+   - Yakınsama grafiğini izle
 
-5. **Sonuç İnceleme**
-   - Bulunan yol sarı renkte görselleştirilir
-   - Metrikler sağ panelde gösterilir
+5. **Sonuç**
+   - Bulunan yol sarı renkte
+   - Metrikler sağ panelde
 
 ---
 
@@ -230,117 +148,100 @@ python main.py
 ```
 QoS-Multi-Objective-Routing/
 ├── app/
-│   ├── main.py                      # Giriş noktası
-│   ├── requirements.txt             # Python bağımlılıkları
+│   ├── main.py                    # Giriş noktası
+│   ├── requirements.txt
 │   └── src/
-│       ├── algorithms/              # 6 optimizasyon algoritması
-│       │   ├── genetic_algorithm.py # GA v2.4 (Normalized)
-│       │   ├── aco.py               # Ant Colony Optimization
-│       │   ├── pso.py               # Particle Swarm Optimization
+│       ├── algorithms/            # 6 optimizasyon algoritması
+│       │   ├── genetic_algorithm.py
+│       │   ├── aco.py
+│       │   ├── pso.py
 │       │   ├── simulated_annealing.py
-│       │   ├── q_learning.py        # Reinforcement Learning
+│       │   ├── q_learning.py
 │       │   └── sarsa.py
 │       │
-│       ├── core/                    # Konfigürasyon
-│       │   └── config.py            # Tüm parametreler
+│       ├── core/
+│       │   └── config.py          # Konfigürasyon
 │       │
-│       ├── experiments/             # Deney framework'u
-│       │   ├── experiment_runner.py # Toplu deney calistirici
-│       │   ├── ilp_solver.py        # ILP optimal cozum
-│       │   └── scalability_analyzer.py
+│       ├── services/
+│       │   ├── graph_service.py   # Graf oluşturma
+│       │   ├── metrics_service.py # QoS metrik hesaplama
+│       │   └── report_service.py  # PDF/PNG export
 │       │
-│       ├── services/                # İş mantığı
-│       │   ├── graph_service.py     # Graf oluşturma/yükleme
-│       │   └── metrics_service.py   # Normalize edilmiş metrik hesaplama
+│       ├── experiments/
+│       │   └── experiment_runner.py
 │       │
-│       ├── workers/                 # Arka plan thread'leri
-│       │   └── optimization_worker.py
-│       │
-│       └── ui/                      # PyQt5 arayüz
-│           ├── main_window.py       # Ana pencere
-│           └── components/
-│               ├── graph_widget.py  # 2D/3D görselleştirme + Chaos Monkey
-│               ├── convergence_widget.py  # Canlı yakınsama grafiği
-│               ├── control_panel.py
-│               ├── results_panel.py
-│               └── ...
+│       └── ui/
+│           ├── main_window.py
+│           ├── components/
+│           │   ├── graph_widget.py
+│           │   ├── control_panel.py
+│           │   └── results_panel.py
+│           └── dialogs/
+│               └── experiment_dialog.py
 │
-├── graph_data/                      # CSV veri dosyaları
+├── graph_data/                    # CSV veri dosyaları
 │   ├── *_NodeData.csv
 │   ├── *_EdgeData.csv
 │   └── *_DemandData.csv
 │
-├── Documents/                       # Dokümantasyon
-│   └── Technical_Defense_Report.md
+├── Documents/                     # 📖 Dokümantasyon
 │
 └── README.md
 ```
 
 ---
 
-## 🔬 Gelişmiş Özellikler
+## � Dokümantasyon
 
-### Multi-Start Optimization
+| Dosya | İçerik |
+|-------|--------|
+| [Geliştirici Rehberi](./Documents/Gelistirici_Rehberi.md) | Kurulum, proje yapısı, kodlama standartları |
+| [GA Akış Şeması](./Documents/GA_akis_semasi.md) | Genetik Algoritma görsel açıklaması |
+| [ACO Akış Şeması](./Documents/Aco_akis_semasi.md) | Karınca Kolonisi görsel açıklaması |
+| [Teknik Gereksinimler](./Documents/Teknik_Gereksinimler.md) | Proje gereksinimleri ve QoS tanımları |
+| [Test Senaryoları](./Documents/Test_Senaryoları_Deney_Duzenegi.md) | Deney düzeneği ve test planları |
+| [ILP Karşılaştırması](./Documents/ILP_Karsilastirmasi.md) | Optimal çözüm benchmark sonuçları |
+| [Ölçeklenebilirlik](./Documents/Olceklenebilirlik_Analizi.md) | Büyük graf performans analizi |
+| [Proje Yönetimi](./Documents/Proje_Yönetimi.md) | Görev dağılımı ve timeline |
 
-Stokastik algoritmaların güvenilirliğini artırmak için N farklı seed ile N kez çalıştırma:
+---
+
+## 📊 QoS Metrikleri
+
+### Formüller (Proje Yönergesi)
+
+| Metrik | Formül |
+|--------|--------|
+| **TotalDelay** | `Σ(LinkDelay) + Σ(ProcessingDelay)` (k ≠ S,D) |
+| **ReliabilityCost** | `Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]` |
+| **ResourceCost** | `Σ(1Gbps / Bandwidth)` |
+| **TotalCost** | `w₁×Delay + w₂×Reliability + w₃×Resource` |
+
+### Normalizasyon
 
 ```
-Çoklu Çalıştırma: [1] [5] [10] [30]
+delay_norm = min(total_delay / 200ms, 1.0)
+reliability_norm = min(-log(reliability) / 10.0, 1.0)
+resource_norm = min(resource_cost / 200.0, 1.0)
 ```
-
-En iyi sonuç otomatik seçilir, istatistiksel analiz sağlanır.
-
-### ILP Benchmark
-
-Meta-sezgisel sonuclari matematiksel optimal cozumle karsilastirma:
-- Optimality Gap (%) hesaplama
-- Solver: PuLP (CBC backend)
-
-### Reproducibility (Tekrarlanabilirlik)
-
-Tüm algoritmalar çalışma sırasında kullanılan seed değerini sonuç objesinde döndürür:
-
-```python
-result = ga.optimize(source=0, destination=249, weights=weights)
-print(f"Kullanılan seed: {result.seed_used}")
-
-# Aynı sonucu tekrar almak için:
-ga = GeneticAlgorithm(graph, seed=result.seed_used)
-result2 = ga.optimize(source=0, destination=249, weights=weights)
-# result.path == result2.path  # ✓ Aynı sonuç
-```
-
-**Desteklenen algoritmalar:**
-- `GAResult.seed_used` - Genetic Algorithm
-- `ACOResult.seed_used` - Ant Colony Optimization
-- `PSOResult.seed_used` - Particle Swarm Optimization
-- `SAResult.seed_used` - Simulated Annealing
-
-### Ölçeklenebilirlik Analizi
-
-Farklı graf boyutlarında (50-500+ düğüm) algoritma performansını test etme.
 
 ---
 
 ## ⚙️ Konfigürasyon
 
-Tüm parametreler `app/src/core/config.py` dosyasında tanımlıdır:
+Parametreler `app/src/core/config.py` dosyasında:
 
 ```python
 # Genetic Algorithm
-GA_POPULATION_SIZE = 150
-GA_GENERATIONS = 500
-GA_MUTATION_RATE = 0.12
+GA_POPULATION_SIZE = 200
+GA_GENERATIONS = 100
+GA_MUTATION_RATE = 0.05
 GA_CROSSOVER_RATE = 0.8
-GA_ELITISM = 0.08
+GA_ELITISM = 0.1
 
 # Ant Colony Optimization
 ACO_N_ANTS = 50
 ACO_N_ITERATIONS = 100
-
-# Simulated Annealing
-SA_INITIAL_TEMPERATURE = 1000.0
-SA_COOLING_RATE = 0.995
 
 # Q-Learning / SARSA
 QL_EPISODES = 5000
@@ -350,19 +251,16 @@ QL_DISCOUNT_FACTOR = 0.95
 
 ---
 
-## 📊 Örnek Sonuçlar
+## � Reproducibility (Tekrarlanabilirlik)
 
-```
-250 düğüm, p=0.40, S=0 → D=200
+Tüm algoritmalar kullanılan seed değerini döndürür:
 
-Algoritma     | Gecikme  | Güvenilirlik | Maliyet | Süre
---------------|----------|--------------|---------|------
-Genetic Alg.  | 45.2 ms  | 92.3%        | 0.234   | 150ms
-ACO           | 48.1 ms  | 94.1%        | 0.251   | 280ms
-PSO           | 46.8 ms  | 93.5%        | 0.245   | 120ms
-SA            | 47.5 ms  | 93.8%        | 0.248   | 85ms
-Q-Learning    | 52.3 ms  | 91.2%        | 0.289   | 450ms
-SARSA         | 51.8 ms  | 91.5%        | 0.285   | 420ms
+```python
+result = ga.optimize(source=1, destination=20, weights=weights)
+print(f"Seed: {result.seed_used}")
+
+# Aynı sonucu tekrar almak için:
+ga = GeneticAlgorithm(graph, seed=result.seed_used)
 ```
 
 ---
@@ -373,7 +271,14 @@ Bu proje eğitim amaçlı geliştirilmiştir.
 
 **BSM307 - Bilgisayar Ağları Dersi | Güz 2025**
 
+Danışman: Doç. Dr. Evrim GÜLER
+
 ---
 
+## 👥 Ekip
 
-Doç. Dr. Evrim GÜLER (Danışman)
+| İsim | Görev |
+|------|-------|
+| Erkan Turgut | Backend & Algoritmalar |
+| Meerimbek Aibek Uulu | Q-Learning & SARSA |
+| Diğer Ekip Üyeleri | UI & Test |

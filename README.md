@@ -263,15 +263,15 @@ print(f"Seed: {result.seed_used}")
 ga = GeneticAlgorithm(graph, seed=result.seed_used)
 ```
 
----
+---  
 
-## 📝 Lisans
+<br>
 
-Bu proje eğitim amaçlı geliştirilmiştir.
 
-**BSM307 - Bilgisayar Ağları Dersi | Güz 2025**
 
-Danışman: Doç. Dr. Evrim GÜLER
+>**BSM307 - Bilgisayar Ağları Dersi | Güz 2025**
+
+>Danışman: Doç. Dr. Evrim GÜLER
 
 ---
 
@@ -279,6 +279,6 @@ Danışman: Doç. Dr. Evrim GÜLER
 
 | İsim | Görev |
 |------|-------|
-| Erkan Turgut | Backend & Algoritmalar |
-| Meerimbek Aibek Uulu | Q-Learning & SARSA |
+| Erkan Turgut | Backend & Genetic & ACO algoritmaları. |
+| Bilal Alfa Guldi | PSO & SA algoritmaları. |
 | Diğer Ekip Üyeleri | UI & Test |

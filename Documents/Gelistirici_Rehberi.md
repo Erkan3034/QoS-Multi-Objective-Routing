@@ -1,163 +1,170 @@
 # Geliştirici Rehberi (Developer Guide)
 
-> Bu doküman, QoS Rotalama projesine kod yazacak tüm ekip üyeleri için standartları ve prosedürleri belirler.
+> QoS Rotalama projesi için standartlar ve prosedürler.
 
 ---
 
-## 1. Kurulum (Setup)
+## 1. Kurulum
 
-Proje **Python 3.9+** gerektirir. Tüm geliştiriciler aşağıdaki adımları uygulamalıdır.
+Proje **Python 3.9+** gerektirir.
 
 ### Ortamın Hazırlanması
 
 ```bash
-# 1. Repoyu klonlayın
-git clone <repo_url>
-cd qos-routing-project
+# 1. Proje klasörüne girin
+cd app
 
-# 2. Sanal ortam oluşturun (ÖNEMLİ: Kütüphane çakışmalarını önler)
-```
-
-**Windows:**
-```bash
+# 2. Sanal ortam oluşturun
+# Windows:
 python -m venv venv
 venv\Scripts\activate
-```
 
-**Mac/Linux:**
-```bash
+# Mac/Linux:
 python3 -m venv venv
 source venv/bin/activate
-```
 
-```bash
 # 3. Bağımlılıkları yükleyin
 pip install -r requirements.txt
+
+# 4. Uygulamayı çalıştırın
+python main.py
 ```
 
-### Örnek `requirements.txt`
+### `requirements.txt`
 
 ```txt
 networkx>=3.1
 matplotlib>=3.7
 PyQt5>=5.15
 numpy>=1.24
-pandas>=2.0
-scipy>=1.10
-gym>=0.26  # RL için (opsiyonel, custom env yazılacaksa gerekmeyebilir)
+reportlab>=4.0
+Pillow>=10.0
 ```
 
 ---
 
-## 🏗️ 2 Proje Yapısı
+## 2. Proje Yapısı
 
 ```
-📁pyqt5-desktop/
-├── main.py                 # Ana giriş noktası
-├── requirements.txt        # Python bağımlılıkları
-├── README.md              # Bu dosya
-└── 📁src/
-    ├──📁 core/
-    │   └── config.py      # Konfigürasyon
-    ├──📁 services/
-    │   ├── graph_service.py    # Graf oluşturma
-    │   └── metrics_service.py  # Metrik hesaplama
-    ├──📁 algorithms/
-    │   ├── genetic_algorithm.py
-    │   ├── aco.py
-    │   ├── pso.py
+📁 app/
+├── main.py                    # Ana giriş noktası
+├── requirements.txt           # Python bağımlılıkları
+└── 📁 src/
+    ├── 📁 core/
+    │   └── config.py          # Konfigürasyon ayarları
+    │
+    ├── 📁 services/
+    │   ├── graph_service.py   # Graf oluşturma (random/file)
+    │   ├── metrics_service.py # QoS metrik hesaplama
+    │   └── report_service.py  # PDF/PNG export
+    │
+    ├── 📁 algorithms/
+    │   ├── genetic_algorithm.py  # Genetik Algoritma
+    │   ├── aco.py                # Karınca Kolonisi
+    │   ├── pso.py                # Parçacık Sürüsü
     │   ├── simulated_annealing.py
-    │   ├── q_learning.py
-    │   └── sarsa.py
-    └──📁 ui/
-        ├── main_window.py     # Ana pencere
-        └──📁 components/
-            ├── graph_widget.py    # Graf görselleştirme
-            ├── control_panel.py   # Kontrol paneli
-            └── results_panel.py   # Sonuç paneli
+    │   ├── q_learning.py         # Q-Learning RL
+    │   └── sarsa.py              # SARSA RL
+    │
+    └── 📁 ui/
+        ├── main_window.py         # Ana pencere
+        ├── 📁 components/
+        │   ├── graph_widget.py    # 2D/3D görselleştirme
+        │   ├── control_panel.py   # Kontrol paneli
+        │   └── results_panel.py   # Sonuç paneli
+        └── 📁 dialogs/
+            └── experiment_dialog.py  # Deney arayüzü
 ```
----
-
-## 3. Git Stratejisi (Branching Model)
-
-Ekip çalışmasında kodun karışmaması için **katı kurallar** uygulanacaktır.
-
-### Branch Yapısı
-
-| Branch | Açıklama |
-|--------|----------|
-| `main` | Sadece "Production Ready" (sunuma hazır) kod bulunur. **ASLA direkt push yapılmaz.** |
-| `dev` | Geliştirme dalıdır. Tüm feature'lar burada birleşir. |
-| `feat/*` | Feature branch'ler: Herkes kendi işini `dev`'den dal alarak yapar. |
-
-### İsimlendirme Kuralları
-
-| Tür | Format | Örnek |
-|-----|--------|-------|
-| Yeni özellik | `feat/isim-ozellik` | `feat/ahmet-genetic-crossover` |
-| Hata düzeltme | `fix/isim-bug` | `fix/mehmet-ui-freeze` |
-
-### İş Akışı
-
-```bash
-# 1. Dev dalına geç
-git checkout dev
-
-# 2. Güncel kodu al
-git pull
-
-# 3. Yeni feature dalı oluştur
-git checkout -b feat/yeni-ozellik
-
-# 4. Kodla -> Commit et -> Pushla
-git add .
-git commit -m "feat: açıklayıcı mesaj"
-git push origin feat/yeni-ozellik
-```
-
-5. GitHub üzerinden `dev` dalına **Pull Request (PR)** aç.
-6. Backend Lead veya Algo Lead onaylayınca merge edilir.
 
 ---
 
-## 4. Kodlama Standartları (Coding Guidelines)
+## 3. Algoritmalar
+
+| Algoritma | Dosya | Açıklama |
+|-----------|-------|----------|
+| **GA** | `genetic_algorithm.py` | Darwin evrim, crossover+mutasyon |
+| **ACO** | `aco.py` | Karınca feromon takibi |
+| **PSO** | `pso.py` | Parçacık sürüsü hareketi |
+| **SA** | `simulated_annealing.py` | Tavlama benzetimi |
+| **Q-Learning** | `q_learning.py` | Model-free RL |
+| **SARSA** | `sarsa.py` | On-policy RL |
+
+### Ortak Arayüz
+
+Tüm algoritmalar aynı `optimize()` metodunu kullanır:
+
+```python
+result = algorithm.optimize(
+    source=1,
+    destination=20,
+    weights={'delay': 0.33, 'reliability': 0.33, 'resource': 0.34},
+    bandwidth_demand=100.0,
+    progress_callback=lambda gen, fit: print(f"Gen {gen}: {fit}")
+)
+```
+
+---
+
+## 4. QoS Metrikleri (Proje Yönergesi)
+
+### Formüller
+
+| Metrik | Formül |
+|--------|--------|
+| **TotalDelay** | `Σ(LinkDelay) + Σ(ProcessingDelay)` (k ≠ S,D) |
+| **ReliabilityCost** | `Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]` |
+| **ResourceCost** | `Σ(1Gbps / Bandwidth)` |
+| **TotalCost** | `w₁×Delay + w₂×Reliability + w₃×Resource` |
+
+---
+
+## 5. Kodlama Standartları
 
 | Kural | Standart | Örnek |
 |-------|----------|-------|
-| **Dil** | Python (PEP8 standartları) | - |
-| **Değişken İsimleri** | `snake_case` | `best_route`, `calculate_delay` |
-| **Class İsimleri** | `PascalCase` | `GeneticSolver`, `NetworkTopology` |
+| Değişken | `snake_case` | `best_route`, `min_delay` |
+| Class | `PascalCase` | `GeneticAlgorithm`, `ACOResult` |
+| Sabit | `UPPER_CASE` | `MAX_ITERATIONS`, `DEFAULT_SEED` |
 
-### Yorum Kuralları
-
-- ✅ Her fonksiyonun başında ne işe yaradığı, parametreleri ve dönüş değeri yazılmalıdır (Docstring).
-- ✅ Karmaşık matematiksel işlemlerin yanına formül referansı eklenmelidir.
-
-### Örnek Fonksiyon
+### Docstring Örneği
 
 ```python
-def calculate_fitness(route, weights):
+def calculate_fitness(path: List[int], weights: Dict) -> float:
     """
-    Bir rotanın uygunluk değerini hesaplar.
+    Yolun fitness değerini hesaplar.
     
     Args:
-        route (list): Düğüm ID'lerinden oluşan liste.
-        weights (dict): {'wd': 0.5, 'wr': 0.3, 'wc': 0.2}
-    
+        path: Düğüm ID listesi [1, 3, 5, 7]
+        weights: {'delay': 0.33, 'reliability': 0.33, 'resource': 0.34}
+        
     Returns:
-        float: Fitness skoru (Düşük olması daha iyi).
+        Fitness skoru (düşük = iyi)
     """
-    # Kod buraya...
-    pass
 ```
 
 ---
 
-## 5. Test Çalıştırma
-
-> ⚠️ Kodunuzu göndermeden önce **mutlaka** test edin.
+## 6. Çalıştırma Komutları
 
 ```bash
-# Tüm testleri çalıştır
-python -m unittest discover tests
+# Uygulamayı başlat
+cd app
+python main.py
+
+# Belirli bir seed ile
+python main.py --seed 42
 ```
+
+---
+
+## 7. Export Özellikleri
+
+| Format | Metod | İçerik |
+|--------|-------|--------|
+| **PDF** | `ReportService.export_pdf()` | Sonuçlar + graf görüntüsü |
+| **PNG** | `ReportService.export_png()` | Graf ekran görüntüsü |
+| **JSON** | `result.to_dict()` | Makine okunabilir veri |
+
+---
+
+> Erkan Turgut (30.12.2025)

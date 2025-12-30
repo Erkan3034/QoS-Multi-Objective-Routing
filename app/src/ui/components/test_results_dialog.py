@@ -177,7 +177,7 @@ class TestResultsDialog(QDialog):
                     # Header
                     writer.writerow([
                         "Algoritma", "Başarı Oranı", "Bant Genişliği Memnuniyeti", 
-                        "Ortalama Maliyet", "Ortalama Süre (ms)", "En İyi Maliyet"
+                        "Ortalama Maliyet", "Ortalama Süre (ms)", "En İyi Maliyet", "En İyi Seed"
                     ])
                     # Data
                     for row in self.result_data.get("comparison_table", []):
@@ -187,7 +187,8 @@ class TestResultsDialog(QDialog):
                             f"{row['bandwidth_satisfaction_rate']:.4f}",
                             f"{row['overall_avg_cost']:.4f}",
                             f"{row['overall_avg_time_ms']:.2f}",
-                            f"{row['best_cost']:.4f}"
+                            f"{row['best_cost']:.4f}",
+                            str(row.get('best_seed', '-')) if row.get('best_seed') else '-'
                         ])
                 QMessageBox.information(self, "Başarılı", "Sonuçlar CSV olarak kaydedildi!")
             except Exception as e:
@@ -267,10 +268,10 @@ class TestResultsDialog(QDialog):
         layout = QVBoxLayout(widget)
         
         table = QTableWidget()
-        table.setColumnCount(6)
+        table.setColumnCount(7)
         table.setHorizontalHeaderLabels([
             "Algoritma", "Başarı (%)", "Bant Genişliği (%)", 
-            "Ort. Maliyet", "Ort. Süre (ms)", "En İyi"
+            "Ort. Maliyet", "Ort. Süre (ms)", "En İyi", "Best Seed"
         ])
         table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         table.verticalHeader().setVisible(False)
@@ -286,6 +287,8 @@ class TestResultsDialog(QDialog):
             self._set_cell(table, i, 3, f"{row['overall_avg_cost']:.4f}")
             self._set_cell(table, i, 4, f"{row['overall_avg_time_ms']:.2f}")
             self._set_cell(table, i, 5, f"{row['best_cost']:.4f}")
+            seed_val = row.get('best_seed')
+            self._set_cell(table, i, 6, str(seed_val) if seed_val else "-")
             
         layout.addWidget(table)
         return widget
@@ -343,9 +346,17 @@ class TestResultsDialog(QDialog):
             info = QLabel(f"Kaynak: {fail['source']} -> Hedef: {fail['destination']} | Gereksinim: {fail['bandwidth_requirement']} Mbps")
             info.setStyleSheet("color: #64748b; font-size: 12px;")
             
+            # Add seed info if available
+            seed_val = fail.get('seed_used')
+            if seed_val:
+                seed_label = QLabel(f"Seed (Reproducibility): {seed_val}")
+                seed_label.setStyleSheet("color: #6ee7b7; font-size: 11px; font-family: 'Consolas', monospace;")
+            
             vbox.addWidget(title)
             vbox.addWidget(reason)
             vbox.addWidget(info)
+            if seed_val:
+                vbox.addWidget(seed_label)
             content_layout.addWidget(frame)
             
         content_layout.addStretch()

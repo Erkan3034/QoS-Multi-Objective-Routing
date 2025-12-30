@@ -33,6 +33,7 @@ class OptimizationResult:
     weighted_cost: float
     computation_time_ms: float
     min_bandwidth: float = 0.0
+    seed_used: Optional[int] = None  # Reproducibility için kullanılan seed
 
 class ComparisonRow(QWidget):
     """Karşılaştırma sonucunu gösteren tek satır (kart)."""
@@ -332,11 +333,21 @@ class ResultsPanel(QWidget):
         self.btn_export_pdf.clicked.connect(self._on_export_pdf_clicked)
         layout.addWidget(self.btn_export_pdf)
         
+        # Seed label
+        self.lbl_seed_title = QLabel("Seed:")
+        self.lbl_seed_title.setStyleSheet("color: #94a3b8; font-size: 11px;")
+        layout.addWidget(self.lbl_seed_title)
+        
+        self.lbl_seed_value = QLabel("-")
+        self.lbl_seed_value.setStyleSheet("color: #6ee7b7; font-size: 11px; font-weight: bold; font-family: 'Consolas', monospace;")
+        self.lbl_seed_value.setToolTip("Aynı sonucu tekrar almak için bu seed değerini kullanın")
+        layout.addWidget(self.lbl_seed_value)
+        
+        layout.addStretch()
+        
         lbl_title = QLabel("Hesaplama Süresi:")
         lbl_title.setStyleSheet("color: #94a3b8; font-size: 11px;")
         layout.addWidget(lbl_title)
-        
-        layout.addStretch()
         
         self.lbl_time_value = QLabel("0.00 ms")
         self.lbl_time_value.setStyleSheet("color: #f1f5f9; font-size: 13px; font-weight: bold;")
@@ -444,6 +455,12 @@ class ResultsPanel(QWidget):
         self._update_card(self.card_res, f"{result.resource_cost:.2f}")
         self._update_card(self.card_weighted, f"{result.weighted_cost:.4f}")
         self.lbl_time_value.setText(f"{result.computation_time_ms:.2f} ms")
+        
+        # Display seed
+        if hasattr(result, 'seed_used') and result.seed_used is not None:
+            self.lbl_seed_value.setText(str(result.seed_used))
+        else:
+            self.lbl_seed_value.setText("-")
 
     def show_comparison(self, results: List[OptimizationResult]):
         # Store results for PDF export

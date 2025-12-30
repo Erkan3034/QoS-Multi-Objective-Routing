@@ -100,7 +100,8 @@ class OptimizationWorker(QThread):
                 total_reliability=metrics.total_reliability,
                 resource_cost=metrics.resource_cost,
                 weighted_cost=metrics.weighted_cost,
-                computation_time_ms=result.computation_time_ms
+                computation_time_ms=result.computation_time_ms,
+                seed_used=getattr(result, 'seed_used', None)
             )
             
             self.finished.emit(opt_result)
@@ -160,7 +161,8 @@ class ComparisonWorker(QThread):
                         total_reliability=metrics.total_reliability,
                         resource_cost=metrics.resource_cost,
                         weighted_cost=metrics.weighted_cost,
-                        computation_time_ms=result.computation_time_ms
+                        computation_time_ms=result.computation_time_ms,
+                        seed_used=getattr(result, 'seed_used', None)
                     ))
                 except Exception as e:
                     print(f"Error in {name}: {e}")
@@ -272,49 +274,6 @@ class ScalabilityWorker(QThread):
             import traceback
             self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
 
-class ParetoWorker(QThread):
-    """Pareto analizi thread'i - UI donmasını önler."""
-    
-    finished = pyqtSignal(object)  # ParetoAnalysisResult
-    progress = pyqtSignal(str)
-    error = pyqtSignal(str)
-    
-    def __init__(self, graph, source, destination, n_solutions=100):
-        super().__init__()
-        self.graph = graph
-        self.source = source
-        self.destination = destination
-        self.n_solutions = n_solutions
-        print(f"[ParetoWorker] Oluşturuldu: {source} -> {destination}, n_solutions={n_solutions}")
-        
-    def run(self):
-        try:
-            print("[ParetoWorker] Thread başlatıldı...")
-            self.progress.emit("Pareto analizi başlatılıyor...")
-            
-            print("[ParetoWorker] ParetoAnalyzer import ediliyor...")
-            from src.experiments.pareto_analyzer import ParetoAnalyzer
-            
-            print("[ParetoWorker] Analyzer oluşturuluyor...")
-            analyzer = ParetoAnalyzer(self.graph)
-            
-            print(f"[ParetoWorker] find_pareto_frontier çağrılıyor ({self.source} -> {self.destination})...")
-            result = analyzer.find_pareto_frontier(
-                self.source, 
-                self.destination, 
-                n_solutions=self.n_solutions
-            )
-            
-            print(f"[ParetoWorker] Analiz tamamlandı! Pareto: {result.pareto_count}, Toplam: {result.total_solutions}")
-            print("[ParetoWorker] finished signal emit ediliyor...")
-            self.finished.emit(result)
-            print("[ParetoWorker] Signal emit edildi!")
-            
-        except Exception as e:
-            import traceback
-            error_msg = f"Pareto analizi hatası:\n{str(e)}\n{traceback.format_exc()}"
-            print(f"[ParetoWorker] HATA: {error_msg}")
-            self.error.emit(error_msg)
 
 class ILPBenchmarkWorker(QThread):
     """ILP benchmark thread'i - UI donmasını önler."""
@@ -606,7 +565,6 @@ class MainWindow(QMainWindow):
         self.experiments_panel.compare_two_requested.connect(self._on_compare_two_algorithms)
         self.experiments_panel.show_path_requested.connect(self._on_show_path_requested)
         # Advanced features
-        self.experiments_panel.run_pareto_requested.connect(self._on_run_pareto_analysis)
         self.experiments_panel.run_ilp_benchmark_requested.connect(self._on_run_ilp_benchmark)
         
         # Graph widget
@@ -1186,73 +1144,7 @@ class MainWindow(QMainWindow):
         dialog = ScenariosDialog(scenarios, self)
         dialog.exec_()
 
-    def _on_run_pareto_analysis(self):
-        """Pareto optimalite analizi başlat (QThread ile)."""
-        print("[MainWindow] _on_run_pareto_analysis çağrıldı")
-        
-        if not self._check_graph():
-            QMessageBox.warning(self, "Uyarı", "Önce bir graf yükleyin veya oluşturun!")
-            return
-        
-        source = self.control_panel.spin_source.value()
-        dest = self.control_panel.spin_dest.value()
-        
-        print(f"[MainWindow] Pareto: source={source}, dest={dest}")
-        
-        if source == dest:
-            QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
-            return
-        
-        # UI feedback
-        self.status_bar.showMessage("Pareto analizi başlatılıyor...")
-        self.experiments_panel.btn_pareto.setEnabled(False)
-        self.experiments_panel.btn_pareto.setText("Analiz ediliyor...")
-        
-        # Start worker thread
-        print("[MainWindow] ParetoWorker oluşturuluyor...")
-        self.current_worker = ParetoWorker(
-            self.graph_service.graph, 
-            source, 
-            dest, 
-            n_solutions=100
-        )
-        
-        print("[MainWindow] Signal bağlantıları yapılıyor...")
-        self.current_worker.progress.connect(lambda msg: self.status_bar.showMessage(msg))
-        self.current_worker.finished.connect(self._on_pareto_finished)
-        self.current_worker.error.connect(self._on_pareto_error)
-        
-        print("[MainWindow] Worker başlatılıyor...")
-        self.current_worker.start()
-        print("[MainWindow] Worker başlatıldı!")
-    
-    def _on_pareto_finished(self, result):
-        """Pareto analizi tamamlandığında."""
-        print(f"[MainWindow] _on_pareto_finished çağrıldı! Pareto: {result.pareto_count}")
-        
-        # Reset button
-        self.experiments_panel.btn_pareto.setEnabled(True)
-        self.experiments_panel.btn_pareto.setText("🔍 Analiz Başlat")
-        
-        self.status_bar.showMessage(
-            f"Pareto analizi tamamlandı! {result.pareto_count} optimal çözüm bulundu.", 
-            5000
-        )
-        
-        print("[MainWindow] ParetoDialog oluşturuluyor...")
-        from src.ui.components.pareto_dialog import ParetoDialog
-        dialog = ParetoDialog(result, self)
-        print("[MainWindow] Dialog gösteriliyor...")
-        dialog.exec_()
-        print("[MainWindow] Dialog kapatıldı.")
-    
-    def _on_pareto_error(self, error_msg):
-        """Pareto analizi hata durumu."""
-        self.experiments_panel.btn_pareto.setEnabled(True)
-        self.experiments_panel.btn_pareto.setText("🔍 Analiz Başlat")
-        self.status_bar.showMessage("Pareto analizi başarısız!", 3000)
-        QMessageBox.critical(self, "Hata", error_msg)
-    
+
     def _on_run_ilp_benchmark(self):
         """ILP benchmark karşılaştırması başlat (QThread ile)."""
         if not self._check_graph():

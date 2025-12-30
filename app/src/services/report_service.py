@@ -159,6 +159,7 @@ class ReportData:
     convergence_image_path: Optional[str] = None
     node_count: int = 0
     edge_count: int = 0
+    seed_used: Optional[int] = None  # Reproducibility için kullanılan seed
 
 
 class ReportService:
@@ -267,6 +268,7 @@ class ReportService:
                 ["Düğüm Sayısı", str(report_data.node_count)],
                 ["Kenar Sayısı", str(report_data.edge_count)],
                 ["Hesaplama Süresi", f"{report_data.computation_time_ms:.2f} ms"],
+                ["Seed (Reproducibility)", str(report_data.seed_used) if report_data.seed_used else "-"],
             ]
             
             info_table = Table(info_data, colWidths=[6*cm, 8*cm])

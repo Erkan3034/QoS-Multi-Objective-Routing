@@ -1,240 +1,182 @@
 """
+GENETİK ALGORİTMA 
 =============================================================================
-GENETİK ALGORİTMA - QoS Çok Amaçlı Yönlendirme (v2.4 - Normalize & Optimize)
-=============================================================================
+BİYOLOJİK EVHAM'DEN ESINLENEN OPTİMİZASYON:
+------------------------------------------
+Darwin'in doğal seçilim teorisini ağ yönlendirme problemine uygular.
+Zayıf yollar elenir, güçlü yollar çoğalır, mutasyonlar yeni keşifler sağlar.
 
-MODÜL AÇIKLAMASI:
------------------
-Bu modül, ağ yönlendirme problemleri için Genetik Algoritma (GA) implementasyonunu
-içerir. Darwin'in evrim teorisinden esinlenerek tasarlanmıştır.
+EVRIM DÖNGÜSÜ:
+-------------
+1. Başlangıç → Çeşitli yollar oluştur (shortest path + random walks)
+2. Değerlendirme → Her yolun fitness'ını hesapla (delay, reliability, resource)
+3. Seçilim → En iyi yolları ebeveyn olarak seç (tournament selection)
+4. Çaprazlama → İki ebeveynden yeni yollar üret (edge-based crossover)
+5. Mutasyon → Rastgele değişikliklerle çeşitlilik sağla
+6. Yeni Nesil → Adım 2'ye dön (veya yakınsama ile dur)
 
-TEMEL KAVRAMLAR:
-----------------
-1. KROMOZOMlar (Bireyler): Olası çözümler - burada ağ yolları
-2. POPÜLASYON: Bir nesildeki tüm bireylerin kümesi
-3. FITNESS: Bir bireyin uygunluk değeri (düşük = daha iyi)
-4. SEÇİLİM (Selection): En iyi bireylerin üreme için seçilmesi
-5. ÇAPRAZLAMA (Crossover): İki ebeveynden yeni bireyler oluşturma
-6. MUTASYON (Mutation): Rastgele değişikliklerle çeşitlilik sağlama
-7. ELİTİZM (Elitism): En iyi bireylerin korunması
+NORMALİZASYON MATEMATİĞİ:
+------------------------
+Farklı birimlerdeki metrikleri (ms, %, Mbps) adil karşılaştırabilmek için:
+- delay_normalized = min(total_delay / 200ms, 1.0)
+- reliability_normalized = min(-log(reliability_product) / 10.0, 1.0)
+- resource_normalized = min(Σ(1000/bandwidth) / 200.0, 1.0)
+- final_cost = w1*delay + w2*reliability + w3*resource
 
-EVRİM DÖNGÜSÜ:
---------------
-1. Başlangıç popülasyonu oluştur
-2. Her bireyin fitness'ını hesapla
-3. En iyi bireyleri seç (tournament selection)
-4. Çaprazlama ile yeni bireyler üret
-5. Mutasyon uygula
-6. Yakınsama kontrolü yap
-7. Adım 2'ye dön (veya sonlandır)
-
-NORMALİZASYON AÇIKLAMASI:
--------------------------
-Farklı metriklerin (ms, %, hop) adil yarışabilmesi için tüm değerler
-0.0 - 1.0 arasına normalize edilir. Bu sayede Delay ve Reliability
-matematiksel olarak eşit ağırlığa sahip olur.
-
-PROJE UYUMLULUĞU:
------------------
-[PROJECT COMPLIANCE] Proje yönergesine uygun formüller:
-- TotalDelay = Σ(LinkDelay) + Σ(ProcessingDelay) [k ≠ S, D]
-- ReliabilityCost = Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]
-- ResourceCost = Σ(1Gbps / Bandwidth)
-
-Değişiklik Logu:
-- [CRITICAL] Fitness Fonksiyonu Normalize Edildi: 'Dominant Metric' problemi çözüldü.
-- [PERF] Singleton Pool ve Adaptive Scaling korundu.
-- [DOC] Geliştirici notları eklendi.
-
+PROJE YÖNERGESİ UYUMU:
+----------------------
+✓ TotalDelay = Σ(LinkDelay) + Σ(ProcessingDelay) [k ≠ S, D]
+✓ ReliabilityCost = Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]
+✓ ResourceCost = Σ(1Gbps / Bandwidth)
 """
 
-# =============================================================================
-# KÜTÜPHANE İMPORTLARI
-# =============================================================================
-import random           # Rastgele sayı üretimi (stokastik operatörler için)
-import time             # Zaman ölçümü (performans değerlendirmesi)
-import logging          # Loglama (debug ve hata takibi)
-import threading        # Thread güvenliği (pool yönetimi için)
-import atexit           # Program sonlandırma hook'ları
+import random, time, logging, threading, atexit, os, math
 from typing import List, Dict, Any, Optional, Tuple, Callable
-from dataclasses import dataclass, field  # Veri sınıfları için dekoratörler
-from functools import lru_cache, partial  # Caching ve partial fonksiyonlar
-import networkx as nx   # Graf veri yapısı ve algoritmaları
-import multiprocessing  # Paralel işlem havuzu
-import os               # İşletim sistemi fonksiyonları
+from dataclasses import dataclass, field
+from functools import lru_cache, partial
+import networkx as nx
+import multiprocessing
 
-# =============================================================================
-# SERVİS İMPORT KONTROLÜ
-# =============================================================================
-# Modül bağımsız olarak test edilebilmesi için try-except bloğu
+# Servis importları (modül bağımsız çalışabilir)
 try:
-    from ..services.metrics_service import MetricsService  # Metrik hesaplama servisi
-    from ..core.config import settings  # Proje konfigürasyonu
+    from ..services.metrics_service import MetricsService
+    from ..core.config import settings
 except ImportError:
-    # Bağımsız çalışma için varsayılan değerler
     MetricsService = None
     class Settings:
-        """Varsayılan GA parametreleri (import başarısız olduğunda kullanılır)""" 
-        GA_POPULATION_SIZE = 200   # Popülasyon boyutu
-        GA_GENERATIONS = 100       # Nesil sayısı
-        GA_MUTATION_RATE = 0.05    # Mutasyon oranı
-        GA_CROSSOVER_RATE = 0.8    # Çaprazlama oranı
-        GA_ELITISM = 0.1           # Elitizm oranı
+        GA_POPULATION_SIZE = 200
+        GA_GENERATIONS = 100
+        GA_MUTATION_RATE = 0.05
+        GA_CROSSOVER_RATE = 0.8
+        GA_ELITISM = 0.1
     settings = Settings()
 
-# Logger oluştur
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# NORMALİZASYON SABİTLERİ (Mühendislik Referans Değerleri)
+# KONFIGURASYON
 # =============================================================================
-# BURASI ÖNEMLİ!
-# Farklı birimleri (ms, %, hop) toplayabilmek için her birini 0.0-1.0 arasına
-# sıkıştırmamız gerekiyor. Bu değerler ağımızdaki "Kabul Edilebilir En Kötü"
-# değerlerdir. Bu eşiklerin üzerindeki değerler tam ceza puanı (1.0) alır.
-# =============================================================================
+
 class NormConfig:
-    """Normalizasyon Konfigurasyonu - Metriklerin adil karşılaştırılması için"""
-    MAX_DELAY_MS = 200.0        # 200ms üzeri "1.0" = tam ceza puanı
-    MAX_HOP_COUNT = 20.0        # 20 hop üzeri çok verimsiz kabul edilir
-    RELIABILITY_PENALTY = 10.0  # Paket kaybını 10 kat cezalandır (Delay ezmesin)
+    """
+    Normalizasyon Referans Değerleri
+    --------------------------------
+    Bu değerler "kabul edilebilir en kötü" değerlerdir.
+    Bunun üzerindeki değerler tam ceza (1.0) alır.
+    
+    Örnek: 150ms delay → 150/200 = 0.75 (normalleştirilmiş)
+           250ms delay → 250/200 = 1.25 → min(1.25, 1.0) = 1.0 (max ceza)
+    """
+    MAX_DELAY_MS = 200.0
+    MAX_HOP_COUNT = 20.0
+    RELIABILITY_PENALTY = 10.0
 
-
-# =============================================================================
-# GENETİK ALGORİTMA KONFIGURASYON SINIFI
-# =============================================================================
 class GAConfig:
-    """
-    Genetik Algoritma Konfigurasyonu
-    
-    Bu sınıf, GA'nın çalışma parametrelerini içerir.
-    Büyük ağlarda paralel işleme otomatik devreye girer.
-    """
-    # Paralel işleme eşikleri
-    PARALLEL_AUTO_ENABLE_NODES = 500   # 500+ düğümde otomatik paralel mod
-    PARALLEL_MIN_POPULATION = 200      # Paralel işleme için min popülasyon
-    
-    # Küçük ağ parametreleri (<500 düğüm)
-    SMALL_NET_GUIDED_RATIO = 0.3       # %30 akıllı başlangıç
-    SMALL_NET_MAX_INIT_ATTEMPTS = 5    # Popülasyon doldurmak için max deneme
-    
-    # Büyük ağ parametreleri (>=500 düğüm)
-    LARGE_NET_GUIDED_RATIO = 0.5       # %50 akıllı başlangıç
-    LARGE_NET_MAX_INIT_ATTEMPTS = 10   # Daha fazla deneme
-    
-    # Paralel işleme optimizasyonu
-    POOL_CHUNKSIZE = 15                # IPC overhead'ı düşürmek için
+    """Genetik Algoritma Davranış Parametreleri"""
+    PARALLEL_AUTO_ENABLE_NODES = 500    # 500+ düğümde paralel mod devreye girer
+    PARALLEL_MIN_POPULATION = 200       # Paralel işleme için minimum popülasyon
+    SMALL_NET_GUIDED_RATIO = 0.3        # Küçük ağlarda akıllı başlangıç oranı
+    SMALL_NET_MAX_INIT_ATTEMPTS = 5
+    LARGE_NET_GUIDED_RATIO = 0.5        # Büyük ağlarda daha fazla akıllı başlangıç
+    LARGE_NET_MAX_INIT_ATTEMPTS = 10
+    POOL_CHUNKSIZE = 15                 # IPC overhead optimizasyonu
 
 # =============================================================================
-# FITNESS WORKER FONKSİYONU (Ana Hesaplama Mantığı)
+# FITNESS FONKSİYONU - Yol Kalitesi Hesaplama Motoru
 # =============================================================================
-def _fitness_worker(path_list: List[int], graph: nx.Graph, weights: Dict[str, float], bw_demand: float) -> float:
+
+def _fitness_worker(path_list: List[int], graph: nx.Graph, 
+                   weights: Dict[str, float], bw_demand: float) -> float:
     """
-    Bir yolun fitness (uygunluk) değerini hesaplar.
+    BİR YOLUN KALİTESİNİ HESAPLAR (Multiprocessing uyumlu)
     
-    Bu fonksiyon paralel işleme için bağımsız olarak çalışabilir.
-    Multiprocessing pool tarafından çağrılır.
+    ÇALIŞMA PRENSİBİ:
+    ----------------
+    1. Düğümleri gez: Processing delay + node reliability topla
+    2. Kenarları gez: Link delay + link reliability + bandwidth kontrolü
+    3. Bandwidth kısıtı ihlali varsa → float('inf') döndür (geçersiz)
+    4. Metrikleri normalize et (0.0-1.0 aralığına)
+    5. Ağırlıklı toplam hesapla: w1*delay + w2*reliability + w3*resource
     
-    [PROJECT COMPLIANCE] Proje yönergesine uygun formüller:
-    - TotalDelay = Σ(LinkDelay) + Σ(ProcessingDelay) where k ≠ S, D
-    - ReliabilityCost = Σ[-log(LinkReliability)] + Σ[-log(NodeReliability)]
-    - ResourceCost = Σ(1Gbps / Bandwidth)
+    ÖRNEK:
+    ------
+    Path: [1, 5, 8, 12, 20]
+    - Düğüm 5,8,12'nin processing delay'leri toplanır (1,20 hariç - kaynak/hedef)
+    - Kenarlar: (1→5), (5→8), (8→12), (12→20) delay'leri toplanır
+    - Reliability: -log(0.99 * 0.98 * 0.97 * ...) hesaplanır
+    - Bandwidth: min(500, 600, 450, 700) = 450 Mbps (darboğaz)
+    - Demand 500 Mbps ise → 450 < 500 → float('inf') (REDDEDİLDİ)
     
-    Args:
-        path_list: Değerlendirilecek yol (düğüm ID listesi)
-        graph: NetworkX graf objesi
-        weights: Metrik ağırlıkları {'delay': 0.33, 'reliability': 0.33, 'resource': 0.34}
-        bw_demand: Bant genişliği talebi (Mbps) - 0 ise kısıt yok
-    
-    Returns:
-        float: Ağırlıklı maliyet (0.0-1.0 arası, düşük = iyi)
-               float('inf') dönerse yol geçersiz veya kısıt ihlali var
+    NEDEN -log(reliability)?
+    -----------------------
+    Reliability değerleri çarpılır (0.99 * 0.98 = 0.9702)
+    log(-) ile toplama dönüşür: -log(0.99) + -log(0.98) = -log(0.99*0.98)
+    Düşük reliability üssel cezalandırılır: -log(0.5) = 0.69, -log(0.9) = 0.11
     """
-    import math  # Lokal import (multiprocessing uyumluluğu için)
-    
     try:
-        # =========== METRİK DEĞİŞKENLERİNİ BAŞLAT ===========
-        total_delay = 0.0          # Toplam gecikme (ms)
-        reliability_cost = 0.0     # Güvenilirlik maliyeti (-log toplamı)
-        min_bw = float('inf')      # Minimum bant genişliği (darboğaz)
-        raw_resource_cost = 0.0    # Ham kaynak maliyeti
+        # Metrik akümülatörleri
+        total_delay = 0.0
+        reliability_cost = 0.0
+        min_bw = float('inf')
+        raw_resource_cost = 0.0
         
-        # =========== KAYNAK VE HEDEF BELİRLEME ===========
-        # [PROJECT COMPLIANCE] S (source) ve D (destination) düğümleri
-        # ProcessingDelay hesabında hariç tutulacak
-        source = path_list[0]       # İlk düğüm = Kaynak
-        destination = path_list[-1] # Son düğüm = Hedef
+        source, destination = path_list[0], path_list[-1]
         
-        # =========== DÜĞÜM METRİKLERİ ===========
-
+        # ADIM 1: Düğüm metrikleri
         for node in path_list:
-            # [PROJECT COMPLIANCE] ProcessingDelay: Sadece ARA düğümler
-            # Kaynak ve Hedef düğümlerin işleme gecikmesi sayilmaz
+            # Processing delay: Sadece ara düğümler (proje yönergesi)
             if node != source and node != destination:
-                pd = graph.nodes[node].get('processing_delay', 0.0)
-                total_delay += float(pd)
+                total_delay += float(graph.nodes[node].get('processing_delay', 0.0))
             
-            # [PROJECT COMPLIANCE] NodeReliability: TÜM düğümler dahil
-            # -log formülü ile güvenilirlik maliyeti hesaplanır(düşük reliability daha fazla cezalandırır)
+            # Node reliability: Tüm düğümler dahil
             nr = float(graph.nodes[node].get('reliability', 0.99))
-            reliability_cost += -math.log(max(nr, 0.001))  # 0'a bölme önleme
+            reliability_cost += -math.log(max(nr, 0.001))  # Sıfır bölme koruması
         
-        # ===========================================
-        #              KENAR METRİKLERİ 
-        # ===========================================
+        # ADIM 2: Kenar metrikleri
         for i in range(len(path_list) - 1):
-            u, v = path_list[i], path_list[i+1]  # Kenarın iki ucu(S ve D)
-            edge_data = graph[u][v]
+            u, v = path_list[i], path_list[i+1]
+            edge = graph[u][v]
             
-            # Link Delay (gecikme)
-            total_delay += edge_data.get('delay', 1.0)
+            total_delay += edge.get('delay', 1.0)
+            reliability_cost += -math.log(max(float(edge.get('reliability', 0.99)), 0.001))
             
-            # Link Reliability (güvenilirlik)
-            er = float(edge_data.get('reliability', 0.99))
-            reliability_cost += -math.log(max(er, 0.001))
-            
-            # Bandwidth (bant genişliği)
-            bw = float(edge_data.get('bandwidth', 1000.0))
-            min_bw = min(min_bw, bw)  # Darboğazı bul
-            
-            # [PROJECT COMPLIANCE] ResourceCost = 1Gbps / Bandwidth
-            raw_resource_cost += (1000.0 / max(bw, 1.0))
+            bw = float(edge.get('bandwidth', 1000.0))
+            min_bw = min(min_bw, bw)  # Darboğaz tespiti
+            raw_resource_cost += (1000.0 / max(bw, 1.0))  # 1Gbps / BW formülü
 
-        # =========== SERT KISIT KONTROLÜ ===========
-        # Bant genişliği talebi karşılanamıyorsa yol geçersiz
+        # ADIM 3: Bandwidth kısıt kontrolü (sert kısıt)
         if bw_demand > 0 and min_bw < bw_demand:
-            return float('inf')  # Geçersiz yol
+            return float('inf')  # Yol reddedildi
 
-        # =========== NORMALİZASYON ===========
-        # Tüm metrikleri 0.0-1.0 arasına normalize et
+        # ADIM 4: Normalizasyon (0.0-1.0 aralığı)
         norm_delay = min(total_delay / NormConfig.MAX_DELAY_MS, 1.0)
         norm_rel = min(reliability_cost / 10.0, 1.0)
         norm_resource = min(raw_resource_cost / 200.0, 1.0)
 
-        # =========== AĞIRLIKLI TOPLAM ===========
-        # Kullanıcı ağırlıklarına göre metrikleri birleştir
-        cost = (weights['delay'] * norm_delay) + \
-               (weights['reliability'] * norm_rel) + \
-               (weights['resource'] * norm_resource)
-               
-        return cost
+        # ADIM 5: Ağırlıklı toplam (kullanıcı tercihleri)
+        return (weights['delay'] * norm_delay + 
+                weights['reliability'] * norm_rel + 
+                weights['resource'] * norm_resource)
 
     except Exception:
-        return float('inf')  # Hata durumunda geçersiz yol
+        return float('inf')
 
-# ---------------------------------------------------------------------------
-# DATA CLASSES
-# ---------------------------------------------------------------------------
+# =============================================================================
+# VERİ SINIFLARI
+# =============================================================================
+
 @dataclass
 class GAResult:
-    path: List[int]
-    fitness: float
-    generation: int
-    computation_time_ms: float
-    convergence_history: List[float] = field(default_factory=list)
+    """Optimizasyon sonuç paketi"""
+    path: List[int]                    # Bulunan en iyi yol
+    fitness: float                     # Yolun kalite skoru
+    generation: int                    # Hangi nesildeoluştu
+    computation_time_ms: float         # Hesaplama süresi
+    convergence_history: List[float] = field(default_factory=list)  # Grafik için
     diversity_history: List[float] = field(default_factory=list)
     success: bool = True
     parallel_enabled: bool = False
+    seed_used: Optional[int] = None    # Reproducibility için kullanılan seed
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -246,25 +188,48 @@ class GAResult:
             "diversity_history": [round(d, 4) for d in self.diversity_history],
             "success": self.success,
             "path_length": len(self.path),
-            "parallel_enabled": self.parallel_enabled
+            "parallel_enabled": self.parallel_enabled,
+            "seed_used": self.seed_used
         }
 
-# ---------------------------------------------------------------------------
-# GENETIC ALGORITHM CLASS
-# ---------------------------------------------------------------------------
+# =============================================================================
+# GENETİK ALGORİTMA - Ana Motor
+# =============================================================================
+
 class GeneticAlgorithm:
-    # Singleton Pool Pattern (Bellek Tasarrufu İçin)
+    """
+    Darwin'den Esinlenen Ağ Yönlendirme Optimizatörü
+    ------------------------------------------------
+    
+    TEMEL STRATEJİ:
+    - Başlangıç: Çeşitli yollar oluştur (shortest paths + heuristic + random)
+    - Evrim: Her nesilde en iyi yollar üreyip yayılır, kötü olanlar elenir
+    - Adaptasyon: Diversity düştüğünde mutation rate artar (lokal optimumdan kaç)
+    
+    PARALEL İŞLEME:
+    - Küçük ağlar (<500 düğüm): Seri işleme (overhead > kazanç)
+    - Büyük ağlar (≥500 düğüm): Paralel işleme (çoklu CPU core kullanımı)
+    - Singleton pool pattern: Tüm GA örnekleri aynı process pool'u paylaşır
+    
+    ADAPTIVE PARAMETRELER:
+    - Popülasyon boyutu ağ büyüklüğüne göre ölçeklenir
+    - Mutation rate diversity'e göre dinamik ayarlanır
+    - Erken yakınsama ile gereksiz iterasyon engellenir
+    """
+    
+    # Singleton pool (bellek verimliliği)
     _shared_pool = None
     _pool_lock = threading.Lock()
     _pool_refcount = 0
     
     @classmethod
     def get_shared_pool(cls, n_processes=None):
+        """Process pool singleton - tüm GA örnekleri paylaşır"""
         with cls._pool_lock:
             if cls._shared_pool is None:
                 n_proc = n_processes or multiprocessing.cpu_count()
                 cls._shared_pool = multiprocessing.Pool(processes=n_proc)
-                logger.info(f"🚀 [System] Process pool initialized with {n_proc} workers.")
+                logger.info(f"🚀 Process pool: {n_proc} workers")
                 atexit.register(cls._shutdown_pool)
             cls._pool_refcount += 1
             return cls._shared_pool
@@ -277,88 +242,80 @@ class GeneticAlgorithm:
                 cls._shared_pool.join()
                 cls._shared_pool = None
     
-    def __init__(
-        self,
-        graph: nx.Graph,
-        population_size: int = None,
-        generations: int = None,
-        mutation_rate: float = None,
-        crossover_rate: float = None,
-        elitism: float = None,
-        tournament_size: int = 5,
-        convergence_threshold: float = 0.001,
-        convergence_generations: int = 20,
-        diversity_threshold: float = 0.1,
-        seed: int = None,
-        use_parallel: str = 'auto',
-        use_standard_metrics: bool = False
-    ):
+    def __init__(self, graph: nx.Graph, population_size: int = None,
+                 generations: int = None, mutation_rate: float = None,
+                 crossover_rate: float = None, elitism: float = None,
+                 tournament_size: int = 5, convergence_threshold: float = 0.001,
+                 convergence_generations: int = 20, diversity_threshold: float = 0.1,
+                 seed: int = None, use_parallel: str = 'auto',
+                 use_standard_metrics: bool = False):
+        """
+        GA Motoru Başlatma
+        -----------------
+        
+        ADAPTIVE DAVRANIŞLAR:
+        - population_size=None → Ağ büyüklüğüne göre otomatik (100→200, 500→260, 1000→500)
+        - use_parallel='auto' → 500+ düğümde otomatik paralel
+        - mutation_rate=None → Başlangıç: 0.05, düşük diversity'de 2.5x artar
+        
+        EXPERIMENT MODE:
+        - use_standard_metrics=True → MetricsService kullan (ACO/PSO ile adil karşılaştırma)
+        - use_standard_metrics=False → Normalize fitness (daha iyi performans)
+        """
         if not graph or graph.number_of_nodes() == 0:
-            raise ValueError("Graf verisi boş, yönlendirme yapılamaz.")
+            raise ValueError("Graf boş!")
         
         self.graph = graph
         self.graph_size = graph.number_of_nodes()
         
-        # [EXPERIMENT MODE] Diğer algoritmalarla adil karşılaştırma için
-        # Eğer True ise, MetricsService kullanılır (ACO, PSO ile aynı)
-        # Eğer False ise, normalize edilmiş fitness kullanılır (daha iyi performans)
+        # Experiment mode kontrolü
         self.use_standard_metrics = use_standard_metrics
-        if self.use_standard_metrics and MetricsService:
-            self.metrics_service = MetricsService(graph)
-        else:
-            self.metrics_service = None
+        self.metrics_service = MetricsService(graph) if (use_standard_metrics and MetricsService) else None
         
-        # Adaptive Parametreler
+        # Adaptive popülasyon (ağ büyüdükçe artar)
         base_pop = population_size or settings.GA_POPULATION_SIZE
         if not population_size:
-            # Ağ büyüdükçe popülasyonu artırıyoruz ki çözüm uzayını tarayabilelim
-            if self.graph_size < 100: self.population_size = base_pop
-            elif self.graph_size < 500: self.population_size = int(base_pop * 1.3)
-            else: self.population_size = int(base_pop * 2.5)
+            if self.graph_size < 100:
+                self.population_size = base_pop
+            elif self.graph_size < 500:
+                self.population_size = int(base_pop * 1.3)
+            else:
+                self.population_size = int(base_pop * 2.5)
         else:
             self.population_size = population_size
 
+        # Genetik operatör parametreleri
         self.generations = generations or settings.GA_GENERATIONS
-        # [IMPROVEMENT] Experiment mode'da daha agresif mutation
-        # Standard metrics kullanıldığında, daha fazla keşif yap
         base_mutation = mutation_rate or settings.GA_MUTATION_RATE
-        if self.use_standard_metrics:
-            # Experiment mode: Daha agresif mutation (daha fazla keşif)
-            self.initial_mutation_rate = base_mutation * 1.5  # 0.1 -> 0.15
-        else:
-            self.initial_mutation_rate = base_mutation
+        self.initial_mutation_rate = base_mutation * 1.5 if use_standard_metrics else base_mutation
         self.mutation_rate = self.initial_mutation_rate
         self.crossover_rate = crossover_rate or settings.GA_CROSSOVER_RATE
         self.elitism = elitism or settings.GA_ELITISM
         self.tournament_size = tournament_size
         
+        # Yakınsama kontrolü
         self.convergence_threshold = convergence_threshold
         self.convergence_generations = convergence_generations
         self.diversity_threshold = diversity_threshold
         
-        # Auto-Parallel Decision
-        if use_parallel == 'auto':
-            self.use_parallel = (self.graph_size >= GAConfig.PARALLEL_AUTO_ENABLE_NODES)
-        else:
-            self.use_parallel = bool(use_parallel)
+        # Paralel işleme kararı
+        self.use_parallel = (self.graph_size >= GAConfig.PARALLEL_AUTO_ENABLE_NODES) if use_parallel == 'auto' else bool(use_parallel)
         
-        # [FIX] Store seed for reference
-        # If seed is None, random will use system time (non-deterministic, different each run)
-        # If seed is set, results will be deterministic (useful for experiments)
+        # Random seed (None = her çalışmada farklı, int = deterministik)
         self._seed = seed
         if seed is not None:
             random.seed(seed)
         
-        # İstatistikler
+        # İstatistik takibi
         self.best_fitness_history: List[float] = []
         self.avg_fitness_history: List[float] = []
         self.diversity_history: List[float] = []
         
-        # Caching & Optimization
+        # Performans cache'leri
         self._neighbor_cache = {node: list(graph.neighbors(node)) for node in graph.nodes()}
         self.current_weights: Dict[str, float] = {}
         
-        # Init Strategy
+        # Popülasyon başlatma stratejisi
         if self.graph_size < GAConfig.PARALLEL_AUTO_ENABLE_NODES:
             self.guided_ratio = GAConfig.SMALL_NET_GUIDED_RATIO
             self.max_init_attempts = GAConfig.SMALL_NET_MAX_INIT_ATTEMPTS
@@ -366,75 +323,78 @@ class GeneticAlgorithm:
             self.guided_ratio = GAConfig.LARGE_NET_GUIDED_RATIO
             self.max_init_attempts = GAConfig.LARGE_NET_MAX_INIT_ATTEMPTS
 
-    def optimize(
-        self,
-        source: int,
-        destination: int,
-        weights: Dict[str, float] = None,
-        bandwidth_demand: float = 0.0,
-        # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
-        progress_callback: Optional[Callable[[int, float], None]] = None
-    ) -> GAResult:
+    def optimize(self, source: int, destination: int, 
+                weights: Dict[str, float] = None, bandwidth_demand: float = 0.0,
+                progress_callback: Optional[Callable[[int, float], None]] = None) -> GAResult:
+        """
+        EVRİM MOTORU - En İyi Yolu Bul
+        ------------------------------
+        
+        ÇALIŞMA AKIŞI:
+        1. Başlangıç popülasyonu oluştur (shortest paths + guided + random)
+        2. EVRİM DÖNGÜSÜ (max 100 nesil):
+           a) Fitness hesapla (paralel/seri)
+           b) En iyi bireyi kaydet (elitizm)
+           c) İstatistikleri güncelle (convergence, diversity)
+           d) Yakınsama kontrolü (erken durdurma)
+           e) Yeni nesil üret (seçilim → çaprazlama → mutasyon)
+        3. En iyi yolu döndür
+        
+        ÖNEMLİ NOKTA:
+        Her optimize() çağrısı bağımsızdır:
+        - Ağırlıklar güncellenir
+        - Cache temizlenir
+        - Random state sıfırlanır (seed yoksa)
+        
+        PROGRESS CALLBACK:
+        Gerçek zamanlı görselleştirme için:
+        progress_callback(generation: int, best_fitness: float)
+        """
         start_time = time.perf_counter()
         
+        # Girdileri doğrula
         self._validate_inputs(source, destination, weights)
         
-        # [FIX] Always update weights FIRST to ensure new optimization uses new weights
-        # This is critical: weights affect fitness calculation throughout the algorithm
+        # Yeni optimizasyon için temiz durum
         self.current_weights = weights or {'delay': 0.33, 'reliability': 0.33, 'resource': 0.34}
-        
-        # [FIX] Always clear cache to force fresh calculation with new weights
-        # Weights affect fitness, so cached paths may not be optimal with new weights
         self._cached_shortest_path.cache_clear()
-        
-        # [FIX] Reset statistics to ensure clean state for new optimization
         self.best_fitness_history.clear()
         self.avg_fitness_history.clear()
         self.diversity_history.clear()
-        
-        # [FIX] Reset mutation rate to initial value for fresh start
         self.mutation_rate = self.initial_mutation_rate
         
-        # [FIX] Reset random state if no seed was set to ensure stochastic behavior
-        # This ensures different results even with same weights (exploration)
-        # If seed was set in __init__, it will remain deterministic (for experiments)
-        if not hasattr(self, '_seed') or self._seed is None:
-            # [FIX] Use nanoseconds + process ID + call counter for truly random seed
-            # time_ns() provides nanosecond precision for uniqueness
+        # Random state yönetimi
+        if self._seed is None:
+            # Stokastik: Her çalışmada farklı seed
             import time as time_module
             if not hasattr(self, '_call_counter'):
                 self._call_counter = 0
             self._call_counter += 1
             seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
             random.seed(seed_val)
-            print(f"[GA] Stokastik mod - seed={seed_val}, call={self._call_counter}")
+            self._actual_seed = seed_val  # Track for result
+            print(f"[GA] Stokastik - seed={seed_val}")
         else:
-            print(f"[GA] Deterministik mod - seed={self._seed}")
+            self._actual_seed = self._seed
+            print(f"[GA] Deterministik - seed={self._seed}")
         
+        # Başlangıç popülasyonu
         population = self._initialize_population(source, destination, bandwidth_demand)
-        
         if not population:
-            return GAResult([], float('inf'), 0, (time.perf_counter()-start_time)*1000, success=False)
+            return GAResult([], float('inf'), 0, (time.perf_counter()-start_time)*1000, success=False, seed_used=self._actual_seed)
         
-        best_individual = None
-        best_fitness = float('inf')
-        best_generation = 0
+        best_individual, best_fitness, best_generation = None, float('inf'), 0
         stagnation_counter = 0
+        pool = self.get_shared_pool() if self.use_parallel else None
         
-        # Lazy Pool Initialization
-        pool = None
-        if self.use_parallel:
-            pool = self.get_shared_pool()
-        
-        # --- EVRİM DÖNGÜSÜ ---
+        # === EVRİM DÖNGÜSÜ ===
         for gen in range(self.generations):
-            # 1. Değerlendirme
+            # 1. Değerlendirme (fitness hesapla)
             fitness_scores = self._evaluate_population(population, bandwidth_demand, pool)
             fitness_scores.sort(key=lambda x: x[1])
             
-            # 2. Elitizm
+            # 2. En iyi birey (elitizm)
             current_best_path, current_best_score = fitness_scores[0]
-            
             if current_best_score < best_fitness:
                 best_fitness = current_best_score
                 best_individual = list(current_best_path)
@@ -443,184 +403,152 @@ class GeneticAlgorithm:
             else:
                 stagnation_counter += 1
             
-            # 3. İstatistik Kaydı
+            # 3. İstatistikler
             self.best_fitness_history.append(best_fitness)
             valid_scores = [s for _, s in fitness_scores if s != float('inf')]
             avg_fit = sum(valid_scores)/len(valid_scores) if valid_scores else float('inf')
             self.avg_fitness_history.append(avg_fit)
-            
             diversity = self._calculate_diversity(population)
             self.diversity_history.append(diversity)
             
-            # [LIVE CONVERGENCE PLOT] Progress callback for real-time visualization
+            # Progress callback
             if progress_callback:
                 try:
                     progress_callback(gen, best_fitness)
                 except Exception as e:
-                    # Don't let callback errors break the optimization
-                    logger.warning(f"Progress callback error: {e}")
+                    logger.warning(f"Callback error: {e}")
             
-            # 4. Erken Yakınsama Kontrolü
+            # 4. Yakınsama kontrolü
             if self._check_convergence(stagnation_counter):
                 break
             
-            # 5. Yeni Nesil Üretimi
+            # 5. Yeni nesil
             if gen < self.generations - 1:
                 self._adjust_mutation_rate(diversity)
                 population = self._evolve(fitness_scores, source, destination, diversity)
         
         elapsed = (time.perf_counter() - start_time) * 1000
-        
         result_path = best_individual if best_individual else [source, destination]
-        print(f"[GA] Sonuç: path={result_path[:5]}...{result_path[-2:] if len(result_path)>5 else ''}, len={len(result_path)}, fitness={best_fitness:.4f}")
+        print(f"[GA] ✓ len={len(result_path)}, fitness={best_fitness:.4f}, t={elapsed:.1f}ms")
         
-        return GAResult(
-            path=result_path,
-            fitness=best_fitness,
-            generation=best_generation,
-            computation_time_ms=elapsed,
-            convergence_history=self.best_fitness_history,
-            diversity_history=self.diversity_history,
-            success=(best_fitness != float('inf')),
-            parallel_enabled=self.use_parallel
-        )
+        return GAResult(path=result_path, fitness=best_fitness, generation=best_generation,
+                       computation_time_ms=elapsed, convergence_history=self.best_fitness_history,
+                       diversity_history=self.diversity_history, success=(best_fitness != float('inf')),
+                       parallel_enabled=self.use_parallel, seed_used=self._actual_seed)
 
     def _validate_inputs(self, source, destination, weights):
+        """Girdi doğrulama"""
         if source not in self.graph or destination not in self.graph:
-            raise ValueError("Kaynak veya Hedef düğüm grafikte bulunamadı.")
-        # Ağırlık toplamı kontrolü (Hata payı ile)
+            raise ValueError("Kaynak/Hedef bulunamadı!")
         if weights and not (0.99 <= sum(weights.values()) <= 1.01):
-            raise ValueError("Ağırlıklar toplamı 1.0 olmalıdır.")
+            raise ValueError("Ağırlıklar toplamı 1.0 olmalı!")
 
-    def _evaluate_population(
-        self, 
-        population: List[List[int]], 
-        bw_demand: float, 
-        pool=None
-    ) -> List[Tuple[List[int], float]]:
-        # [EXPERIMENT MODE] Eğer standard metrics kullanılıyorsa, MetricsService ile hesapla
+    def _evaluate_population(self, population: List[List[int]], 
+                            bw_demand: float, pool=None) -> List[Tuple[List[int], float]]:
+        """
+        POPÜLASYON DEĞERLENDİRME - Fitness Hesaplama Motoru
+        ---------------------------------------------------
+        
+        STRATEJİ SEÇİMİ:
+        - Experiment mode → MetricsService kullan (adil karşılaştırma)
+        - Normal mode → Normalize fitness kullan (daha hızlı)
+        
+        PARALEL vs SERİ:
+        - Popülasyon > 200 ve parallel=True → Paralel (multiprocessing.Pool)
+        - Aksi halde → Seri (process spawn overhead > kazanç)
+        
+        NEDEN İKİ MOD?
+        - Küçük işler: Process spawn overhead hesaplama süresinden fazla
+        - Büyük işler: Paralel işleme 4-8x hızlanma sağlar
+        """
+        # Experiment mode: MetricsService
         if self.use_standard_metrics and self.metrics_service:
             results = []
             for path in population:
-                # Bandwidth kontrolü
-                if bw_demand > 0:
-                    min_bw = float('inf')
-                    for i in range(len(path) - 1):
-                        u, v = path[i], path[i+1]
-                        if self.graph.has_edge(u, v):
-                            min_bw = min(min_bw, self.graph[u][v].get('bandwidth', 1000.0))
+                if bw_demand > 0:  # Bandwidth kontrolü
+                    min_bw = min(self.graph[path[i]][path[i+1]].get('bandwidth', 1000.0) 
+                               for i in range(len(path)-1) if self.graph.has_edge(path[i], path[i+1]))
                     if min_bw < bw_demand:
                         results.append((path, float('inf')))
                         continue
-                
-                # MetricsService ile hesapla (ACO, PSO ile aynı)
                 fit = self.metrics_service.calculate_weighted_cost(
-                    path,
-                    self.current_weights['delay'],
-                    self.current_weights['reliability'],
-                    self.current_weights['resource']
-                )
+                    path, self.current_weights['delay'], 
+                    self.current_weights['reliability'], 
+                    self.current_weights['resource'])
                 results.append((path, fit))
             return results
         
-        # Normalize edilmiş fitness kullan (varsayılan, daha iyi performans)
-        # Threshold Logic: Çok küçük popülasyonlar için process spawn etmeye değmez.
-        should_use_parallel = (
-            pool is not None and 
-            self.use_parallel and
-            len(population) > GAConfig.PARALLEL_MIN_POPULATION
-        )
+        # Normal mode: Normalize fitness
+        should_parallel = pool and self.use_parallel and len(population) > GAConfig.PARALLEL_MIN_POPULATION
         
-        if should_use_parallel:
-            worker_func = partial(
-                _fitness_worker, 
-                graph=self.graph, 
-                weights=self.current_weights, 
-                bw_demand=bw_demand
-            )
-            # Chunksize performansı artırır (IPC overhead'i düşürür)
-            fitness_values = pool.map(
-                worker_func, 
-                population, 
-                chunksize=GAConfig.POOL_CHUNKSIZE
-            )
+        if should_parallel:
+            # Paralel işleme (büyük popülasyonlar)
+            worker_func = partial(_fitness_worker, graph=self.graph, 
+                                weights=self.current_weights, bw_demand=bw_demand)
+            fitness_values = pool.map(worker_func, population, chunksize=GAConfig.POOL_CHUNKSIZE)
             return list(zip(population, fitness_values))
         else:
-            # Serial Execution (Küçük yükler için çok daha hızlı)
-            results = []
-            for path in population:
-                fit = _fitness_worker(path, self.graph, self.current_weights, bw_demand)
-                results.append((path, fit))
-            return results
+            # Seri işleme (küçük popülasyonlar)
+            return [(path, _fitness_worker(path, self.graph, self.current_weights, bw_demand)) 
+                   for path in population]
 
     @lru_cache(maxsize=5000)
     def _cached_shortest_path(self, src: int, dst: int) -> Tuple[int]:
+        """Shortest path cache (performans optimizasyonu)"""
         try:
             return tuple(nx.shortest_path(self.graph, src, dst))
         except nx.NetworkXNoPath:
             return ()
 
-    def _initialize_population(self, source: int, destination: int, bandwidth_demand: float = 0.0) -> List[List[int]]:
+    def _initialize_population(self, source: int, destination: int, 
+                              bandwidth_demand: float = 0.0) -> List[List[int]]:
         """
-        [IMPROVED] Daha iyi başlangıç popülasyonu oluşturur.
+        BAŞLANGIÇ POPÜLASYONU - Çeşitli ve Kaliteli
+        -------------------------------------------
         
-        İyileştirmeler:
-        1. Multiple shortest path variations (k-weighted shortest paths)
-        2. Fitness-based guided initialization (daha iyi yollar)
-        3. Daha fazla çeşitlilik
-        4. [NEW] Bandwidth constraint filtering
+        ÇOKLU STRATEJİ:
+        1. Baseline shortest paths (hop, delay, reliability bazlı)
+        2. Fitness-based guided paths (en iyi 50'den en iyi %50'si)
+        3. Heuristic guided walks (hub düğümlere yönelir)
+        4. Random walks (keşif için)
+        
+        NEDEN KARIŞIK BAŞLANGIÇ?
+        - Sadece shortest path → Lokal optimumda kalır
+        - Sadece random → Yavaş yakınsama
+        - Karışık → Hızlı başlangıç + geniş keşif
+        
+        BANDWIDTH FİLTRELEME:
+        bandwidth_demand > 0 ise sadece yeterli BW'ye sahip edge'ler kullanılır.
+        Bu sayede baştan geçersiz yollar üretilmez.
         """
-        population = []
-        seen_paths = set()
+        population, seen_paths = [], set()
         
-        # [FIX] Create a filtered subgraph meeting bandwidth demand for initialization
+        # Bandwidth filtreli graf
         if bandwidth_demand > 0:
-            valid_edges = [
-                (u, v) for u, v, d in self.graph.edges(data=True)
-                if d.get('bandwidth', 0) >= bandwidth_demand
-            ]
+            valid_edges = [(u,v) for u,v,d in self.graph.edges(data=True) 
+                          if d.get('bandwidth', 0) >= bandwidth_demand]
             init_graph = self.graph.edge_subgraph(valid_edges).copy()
         else:
             init_graph = self.graph
-            
-        # Check connectivity on filtered graph
+        
         if not nx.has_path(init_graph, source, destination):
             return []
         
-        # Baseline: En Kısa Yol (on filtered graph)
-        try:
-            sp = nx.shortest_path(init_graph, source, destination, weight='weight') # Default unweighted or 'weight'
-            if sp:
-                population.append(list(sp))
-                seen_paths.add(tuple(sp))
-        except nx.NetworkXNoPath:
-            pass
+        # 1. Baseline shortest paths (farklı weight'lerle)
+        for weight_type in ['weight', 'delay', None]:  # None = hop-based
+            try:
+                sp = nx.shortest_path(init_graph, source, destination, weight=weight_type)
+                if tuple(sp) not in seen_paths:
+                    population.append(list(sp))
+                    seen_paths.add(tuple(sp))
+            except:
+                pass
         
-        # [IMPROVEMENT 1] K-weighted shortest paths ekle (çeşitlilik için)
-        # Farklı edge weight kombinasyonlarıyla shortest path'ler bul
+        # 2. Reliability-based shortest path
         try:
-            # Delay-based shortest path
-            delay_sp = nx.shortest_path(init_graph, source, destination, weight='delay')
-            if tuple(delay_sp) not in seen_paths:
-                population.append(list(delay_sp))
-                seen_paths.add(tuple(delay_sp))
-        except:
-            pass
-        
-        try:
-            # Reliability-based (inverse) shortest path
-            # Yüksek reliability'li edge'leri tercih et
-            # Note: We need to modify weights on the filtered graph copy
-            if bandwidth_demand > 0:
-                 # Already a copy
-                 rel_graph = init_graph 
-            else:
-                 rel_graph = self.graph.copy()
-                 
-            for u, v in rel_graph.edges():
-                rel = rel_graph[u][v].get('reliability', 0.99)
-                rel_graph[u][v]['temp_weight'] = 1.0 / (rel + 0.01)  # Inverse
-                
+            rel_graph = init_graph.copy() if bandwidth_demand > 0 else self.graph.copy()
+            for u,v in rel_graph.edges():
+                rel_graph[u][v]['temp_weight'] = 1.0 / (rel_graph[u][v].get('reliability', 0.99) + 0.01)
             rel_sp = nx.shortest_path(rel_graph, source, destination, weight='temp_weight')
             if tuple(rel_sp) not in seen_paths:
                 population.append(list(rel_sp))
@@ -628,144 +556,109 @@ class GeneticAlgorithm:
         except:
             pass
         
-        # [IMPROVEMENT 2] Fitness-based guided initialization
-        # Önce birkaç guided path oluştur, en iyilerini seç
-        # [FIX] Use fitness-based initialization even in normal mode if weights are available
-        # This ensures that weight changes affect the initial population
-        if hasattr(self, 'current_weights') and self.current_weights:
-            # Use MetricsService if available, otherwise use internal fitness
-            use_metrics_service = (self.use_standard_metrics and self.metrics_service)
-            candidate_paths = []
-            max_candidates = min(50, self.population_size * 2)
-            
-            for _ in range(max_candidates):
-                if random.random() < self.guided_ratio:
-                    path = self._generate_guided_path(source, destination, bandwidth_demand)
-                else:
-                    path = self._generate_random_path(source, destination, bandwidth_demand)
-                
+        # 3. Fitness-based guided initialization
+        if self.current_weights:
+            candidates = []
+            for _ in range(min(50, self.population_size * 2)):
+                path = (self._generate_guided_path(source, destination, bandwidth_demand) 
+                       if random.random() < self.guided_ratio 
+                       else self._generate_random_path(source, destination, bandwidth_demand))
                 if path and tuple(path) not in seen_paths:
-                    # [FIX] Calculate fitness using current weights (critical for weight changes)
-                    if use_metrics_service:
-                        # Use MetricsService for standard metrics
-                        fitness = self.metrics_service.calculate_weighted_cost(
-                            path,
-                            self.current_weights.get('delay', 0.33),
-                            self.current_weights.get('reliability', 0.33),
-                            self.current_weights.get('resource', 0.34),
-                            bandwidth_demand # Pass constraint
-                        )
-                    else:
-                        # Use internal fitness worker for normalized metrics
-                        fitness = _fitness_worker(
-                            path, 
-                            self.graph, 
-                            self.current_weights, 
-                            bandwidth_demand # Pass constraint
-                        )
-                    candidate_paths.append((fitness, path))
+                    fit = (self.metrics_service.calculate_weighted_cost(path, **self.current_weights, bandwidth_demand=bandwidth_demand)
+                          if (self.use_standard_metrics and self.metrics_service)
+                          else _fitness_worker(path, self.graph, self.current_weights, bandwidth_demand))
+                    candidates.append((fit, path))
             
-            # En iyi %50'sini seç
-            candidate_paths.sort(key=lambda x: x[0])
-            for _, path in candidate_paths[:len(candidate_paths)//2]:
-                pt = tuple(path)
-                if pt not in seen_paths and len(population) < self.population_size:
+            # En iyi %50'si
+            candidates.sort(key=lambda x: x[0])
+            for _, path in candidates[:len(candidates)//2]:
+                if tuple(path) not in seen_paths and len(population) < self.population_size:
                     population.append(path)
-                    seen_paths.add(pt)
+                    seen_paths.add(tuple(path))
         
-        # Karışık Strateji: Guided (Akıllı) + Random (Çeşitlilik)
-        attempts = 0
-        max_attempts = self.population_size * self.max_init_attempts
-        
+        # 4. Kalan yerleri doldur
+        attempts, max_attempts = 0, self.population_size * self.max_init_attempts
         while len(population) < self.population_size and attempts < max_attempts:
-            if random.random() < self.guided_ratio:
-                path = self._generate_guided_path(source, destination, bandwidth_demand)
-            else:
-                path = self._generate_random_path(source, destination, bandwidth_demand)
-            
-            if path:
-                pt = tuple(path)
-                if pt not in seen_paths:
-                    population.append(path)
-                    seen_paths.add(pt)
+            path = (self._generate_guided_path(source, destination, bandwidth_demand)
+                   if random.random() < self.guided_ratio
+                   else self._generate_random_path(source, destination, bandwidth_demand))
+            if path and tuple(path) not in seen_paths:
+                population.append(path)
+                seen_paths.add(tuple(path))
             attempts += 1
-            
-        # Popülasyon dolmadıysa (küçük ağlarda veya kısıtlı ağlarda olur), shortest path ile doldur
-        # Ama sadece geçerli SP varsa.
+        
+        # Son çare: İlk yolu kopyala
         if population:
-            # En az bir yol varsa, çeşitlilik için onu kopyalayabiliriz veya SP'yi tekrar ekleyebiliriz.
-            # En iyi yol (ilk bulunan SP) ile dolduralım.
-            fill_path = population[0]
             while len(population) < self.population_size:
-                population.append(list(fill_path))
+                population.append(list(population[0]))
         
         return population
 
-    def _generate_guided_path(self, source: int, destination: int, bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
-        """Heuristic Path Generation: Degree Centrality kullanarak 'Hub' düğümlere yönelir."""
-        path = [source]
-        current = source
-        visited = {source}
+    def _generate_guided_path(self, source: int, destination: int, 
+                             bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
+        """
+        HEURİSTİC YOL OLUŞTURMA - Hub Düğümlere Yönel
+        ---------------------------------------------
+        
+        PRENSİP:
+        Yüksek degree'li düğümler (hub'lar) merkezî konumdadır.
+        Bu düğümlerden geçen yollar genellikle daha iyi bağlantıya sahiptir.
+        
+        RULET TEKERLEĞİ SEÇİMİ:
+        Komşular: A(degree=10), B(degree=5), C(degree=3)
+        Tekerlek: [0----10----15--18]
+        random(0,18) = 7 → A seçilir (7 < 10)
+        random(0,18) = 13 → B seçilir (10 < 13 < 15)
+        → Yüksek degree daha fazla seçilir ama garanti değil (stokastik keşif)
+        """
+        path, current, visited = [source], source, {source}
         
         for _ in range(max_len):
-            if current == destination: return path
+            if current == destination:
+                return path
             
-            # Filter neighbors
-            neighbors = []
-            for n in self._neighbor_cache[current]:
-                if n in visited: continue
-                # Check bandwidth constraint
-                if bandwidth_demand > 0:
-                     bw = self.graph[current][n].get('bandwidth', 0)
-                     if bw < bandwidth_demand: continue
-                neighbors.append(n)
-
-            if not neighbors: return None
+            # Bandwidth filtreli komşular
+            neighbors = [n for n in self._neighbor_cache[current] 
+                        if n not in visited and 
+                        (bandwidth_demand == 0 or self.graph[current][n].get('bandwidth', 0) >= bandwidth_demand)]
             
+            if not neighbors:
+                return None
             if destination in neighbors:
                 path.append(destination)
                 return path
             
-            # Hub Selection (Rulet Tekerleği)
+            # Rulet tekerleği
             degrees = [self.graph.degree(n) for n in neighbors]
             total = sum(degrees)
             if total > 0:
                 pick = random.uniform(0, total)
                 curr_sum = 0
-                next_node = neighbors[0]
                 for i, deg in enumerate(degrees):
                     curr_sum += deg
                     if curr_sum >= pick:
-                        next_node = neighbors[i]
+                        current = neighbors[i]
                         break
             else:
-                next_node = random.choice(neighbors)
+                current = random.choice(neighbors)
             
-            path.append(next_node)
-            visited.add(next_node)
-            current = next_node
+            path.append(current)
+            visited.add(current)
+        
         return None
 
-    def _generate_random_path(self, source: int, destination: int, bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
-        """Saf Rastgele Yürüyüş (Keşif/Exploration için)"""
-        path = [source]
-        current = source
-        visited = {source}
+    def _generate_random_path(self, source: int, destination: int, 
+                             bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
+        """RASTGELE YÜRÜYÜŞPath Generation - Keşif için"""
+        path, current, visited = [source], source, {source}
         for _ in range(max_len):
-            if current == destination: return path
-            
-            # Filter neighbors
-            neighbors = []
-            for n in self._neighbor_cache[current]:
-                if n in visited: continue
-                # Check bandwidth constraint
-                if bandwidth_demand > 0:
-                     bw = self.graph[current][n].get('bandwidth', 0)
-                     if bw < bandwidth_demand: continue
-                neighbors.append(n)
-                
-            if not neighbors: return None
-            
+            if current == destination:
+                return path
+            neighbors = [n for n in self._neighbor_cache[current] 
+                        if n not in visited and 
+                        (bandwidth_demand == 0 or self.graph[current][n].get('bandwidth', 0) >= bandwidth_demand)]
+            if not neighbors:
+                return None
             if destination in neighbors:
                 path.append(destination)
                 return path
@@ -775,19 +668,27 @@ class GeneticAlgorithm:
         return None
 
     def _evolve(self, scores, src, dst, diversity):
+        """
+        YENİ NESİL ÜRET - Seçilim → Çaprazlama → Mutasyon
+        -------------------------------------------------
+        
+        ADIMLAR:
+        1. Elitizm: En iyi %10'u direkt aktar (iyi genleri koru)
+        2. Üreme döngüsü (kalan %90 için):
+           a) Tournament selection ile 2 ebeveyn seç
+           b) %80 ihtimalle crossover (çocuk oluştur)
+           c) Mutation rate ihtimaliyle mutate et
+           d) Geçerli çocukları yeni popülasyona ekle
+        """
         new_pop = []
-        # Elitizm
         elite_count = max(1, int(self.population_size * self.elitism))
         new_pop.extend([list(s[0]) for s in scores[:elite_count]])
         
         while len(new_pop) < self.population_size:
-            p1 = self._tournament_select(scores)
-            p2 = self._tournament_select(scores)
-            
-            if random.random() < self.crossover_rate:
-                c1, c2 = self._edge_based_crossover(p1, p2, src, dst)
-            else:
-                c1, c2 = list(p1), list(p2)
+            p1, p2 = self._tournament_select(scores), self._tournament_select(scores)
+            c1, c2 = (self._edge_based_crossover(p1, p2, src, dst) 
+                     if random.random() < self.crossover_rate 
+                     else (list(p1), list(p2)))
             
             op = self._select_mutation_operator(diversity)
             if random.random() < self.mutation_rate: c1 = op(c1, src, dst)
@@ -799,40 +700,38 @@ class GeneticAlgorithm:
         return new_pop
 
     def _select_mutation_operator(self, diversity: float):
+        """Diversity'e göre mutasyon tipi seç (düşük → agresif)"""
         if diversity < 0.05: return self._mutate_segment_replacement
         elif diversity < 0.15: return self._mutate_node_insertion
         else: return self._mutate_node_replacement
 
     def _adjust_mutation_rate(self, diversity: float):
-        """
-        [IMPROVED] Daha agresif mutation rate ayarlama.
-        
-        Experiment mode'da daha fazla keşif yapmak için mutation rate'i artır.
-        """
+        """Diversity düştüğünde mutation rate artır (lokal optimumdan kaç)"""
         if diversity < self.diversity_threshold:
-            # Çeşitlilik azaldıysa mutation'ı artır
-            max_mutation = 0.4 if self.use_standard_metrics else 0.3
-            self.mutation_rate = min(max_mutation, self.initial_mutation_rate * 2.5)
+            max_mut = 0.4 if self.use_standard_metrics else 0.3
+            self.mutation_rate = min(max_mut, self.initial_mutation_rate * 2.5)
         else:
             self.mutation_rate = self.initial_mutation_rate
 
     def _tournament_select(self, scores):
+        """Tournament: K bireyden en iyisini seç"""
         k = min(self.tournament_size, len(scores))
         return list(min(random.sample(scores, k), key=lambda x: x[1])[0])
 
     def _edge_based_crossover(self, p1, p2, src, dst):
+        """Çaprazlama: Ortak düğümde kes ve değiştir"""
         common = set(p1[1:-1]).intersection(p2[1:-1])
         if not common: return list(p1), list(p2)
         node = random.choice(list(common))
         try:
             i1, i2 = p1.index(node), p2.index(node)
-            c1 = self._repair_path(p1[:i1+1] + p2[i2+1:], src, dst)
-            c2 = self._repair_path(p2[:i2+1] + p1[i1+1:], src, dst)
-            return c1, c2
+            return (self._repair_path(p1[:i1+1] + p2[i2+1:], src, dst),
+                   self._repair_path(p2[:i2+1] + p1[i1+1:], src, dst))
         except ValueError:
             return list(p1), list(p2)
 
     def _mutate_node_replacement(self, path, src, dst):
+        """Mutasyon: Bir düğümü komşusuyla değiştir"""
         if len(path) < 4: return path
         idx = random.randint(1, len(path)-2)
         opts = (set(self._neighbor_cache[path[idx-1]]) & set(self._neighbor_cache[path[idx+1]])) - set(path)
@@ -840,20 +739,18 @@ class GeneticAlgorithm:
         return path
 
     def _mutate_segment_replacement(self, path, src, dst):
+        """Mutasyon: Kesit değiştir (agresif)"""
         if len(path) < 5: return path
-        idx1 = random.randint(1, len(path) - 4)
-        idx2 = random.randint(idx1 + 2, len(path) - 1)
-        n1, n2 = path[idx1], path[idx2]
+        idx1, idx2 = random.randint(1, len(path)-4), random.randint(idx1+2, len(path)-1) if len(path) > 4 else len(path)-1
         try:
-            n1_neighbors = [n for n in self._neighbor_cache[n1] if n not in path[idx1+1:idx2]]
-            if not n1_neighbors: return path
-            via = random.choice(n1_neighbors)
-            sp = self._cached_shortest_path(via, n2)
+            via = random.choice([n for n in self._neighbor_cache[path[idx1]] if n not in path[idx1+1:idx2]])
+            sp = self._cached_shortest_path(via, path[idx2])
             if sp: return self._repair_path(path[:idx1+1] + list(sp) + path[idx2+1:], src, dst)
-        except Exception: pass
+        except: pass
         return path
 
     def _mutate_node_insertion(self, path, src, dst):
+        """Mutasyon: Detour ekle"""
         if len(path) < 3: return path
         idx = random.randint(1, len(path)-1)
         candidates = set(self._neighbor_cache[path[idx-1]]) - set(path)
@@ -864,9 +761,10 @@ class GeneticAlgorithm:
         return path
 
     def _repair_path(self, path, src, dst):
+        """Yol onarımı: Tekrar/kopukluk düzelt"""
         if not path or len(path) < 2: return path
-        seen = set()
         clean = []
+        seen = set()
         for x in path:
             if x not in seen:
                 clean.append(x)
@@ -884,16 +782,14 @@ class GeneticAlgorithm:
         return repaired if repaired[-1] == dst else []
 
     def _is_valid(self, path):
-        if not path or len(path) < 2: return False
-        if len(path) != len(set(path)): return False
-        for i in range(len(path)-1):
-            if not self.graph.has_edge(path[i], path[i+1]): return False
-        return True
+        """Yol geçerlilik kontrolü"""
+        return (path and len(path) >= 2 and len(path) == len(set(path)) and
+               all(self.graph.has_edge(path[i], path[i+1]) for i in range(len(path)-1)))
 
     def _calculate_diversity(self, population):
+        """Popülasyon çeşitliliği (Jaccard Distance)"""
         if len(population) < 2: return 0.0
-        sample_size = min(max(30, int(len(population)*0.15)), 80)
-        sample = random.sample(population, sample_size)
+        sample = random.sample(population, min(max(30, int(len(population)*0.15)), 80))
         total, count = 0, 0
         for i in range(len(sample)):
             for j in range(i+1, len(sample)):
@@ -904,21 +800,27 @@ class GeneticAlgorithm:
         return total / count if count > 0 else 0.0
 
     def _check_convergence(self, stagnation):
-        if stagnation >= self.convergence_generations: return True
-        if len(self.best_fitness_history) > 10:
-            recent = self.best_fitness_history[-10:]
-            if max(recent) - min(recent) < self.convergence_threshold: return True
-        return False
+        """Yakınsama kontrolü (erken durdurma)"""
+        return (stagnation >= self.convergence_generations or
+               (len(self.best_fitness_history) > 10 and
+                max(self.best_fitness_history[-10:]) - min(self.best_fitness_history[-10:]) < self.convergence_threshold))
 
     def get_statistics(self) -> Dict[str, Any]:
-        return {
-            "best_fitness_history": self.best_fitness_history,
-            "diversity_history": self.diversity_history,
-            "final_best_fitness": self.best_fitness_history[-1] if self.best_fitness_history else None,
-            "parallel_enabled": self.use_parallel
-        }
+        return {"best_fitness_history": self.best_fitness_history,
+                "diversity_history": self.diversity_history,
+                "final_best_fitness": self.best_fitness_history[-1] if self.best_fitness_history else None,
+                "parallel_enabled": self.use_parallel}
     
     def reset_statistics(self):
         self.best_fitness_history.clear()
         self.diversity_history.clear()
         self._cached_shortest_path.cache_clear()
+
+
+
+"""
+Kod : ~370 satır
+Yorum : ~430 satır
+
+Erkan TURGUT
+"""

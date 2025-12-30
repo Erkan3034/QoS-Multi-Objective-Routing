@@ -59,6 +59,7 @@ class SAResult:
     iteration: int
     final_temperature: float
     computation_time_ms: float
+    seed_used: Optional[int] = None  # Reproducibility için kullanılan seed
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -67,6 +68,7 @@ class SAResult:
             "iteration": self.iteration,
             "final_temperature": round(self.final_temperature, 6),
             "computation_time_ms": round(self.computation_time_ms, 2),
+            "seed_used": self.seed_used
         }
 
 
@@ -162,8 +164,10 @@ class SimulatedAnnealing:
             self._call_counter += 1
             seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
             random.seed(seed_val)
+            self._actual_seed = seed_val  # Track for result
             print(f"[SA] Stokastik mod - seed={seed_val}, call={self._call_counter}")
         else:
+            self._actual_seed = self._seed
             print(f"[SA] Deterministik mod - seed={self._seed}")
 
         self.fitness_history.clear()
@@ -187,12 +191,14 @@ class SimulatedAnnealing:
                     current_path = nx.shortest_path(self.graph, source, destination)
             except nx.NetworkXNoPath:
                 elapsed = (time.perf_counter() - start_time) * 1000
+                actual_seed = self._actual_seed if hasattr(self, '_actual_seed') else None
                 return SAResult(
                     path=[source, destination],
                     fitness=float("inf"),
                     iteration=0,
                     final_temperature=self.params.initial_temperature,
                     computation_time_ms=elapsed,
+                    seed_used=actual_seed
                 )
 
         current_fit = self._fitness(current_path, weights, bandwidth_demand)
@@ -272,6 +278,7 @@ class SimulatedAnnealing:
             iteration=best_iter,
             final_temperature=T,
             computation_time_ms=elapsed_ms,
+            seed_used=self._actual_seed
         )
 
     # =========================

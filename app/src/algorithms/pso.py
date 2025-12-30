@@ -41,13 +41,15 @@ class PSOResult:
     fitness: float
     iteration: int
     computation_time_ms: float
+    seed_used: Optional[int] = None  # Reproducibility için kullanılan seed
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "path": self.path,
             "fitness": round(self.fitness, 6),
             "iteration": self.iteration,
-            "computation_time_ms": round(self.computation_time_ms, 2)
+            "computation_time_ms": round(self.computation_time_ms, 2),
+            "seed_used": self.seed_used
         }
 
 
@@ -182,8 +184,10 @@ class ParticleSwarmOptimization:
             self._call_counter += 1
             seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
             random.seed(seed_val)
+            self._actual_seed = seed_val  # Track for result
             print(f"[PSO] Stokastik mod - seed={seed_val}, call={self._call_counter}")
         else:
+            self._actual_seed = self._seed
             print(f"[PSO] Deterministik mod - seed={self._seed}")
 
         self.gbest_history.clear()
@@ -210,7 +214,8 @@ class ParticleSwarmOptimization:
                 f = float("inf")
 
             elapsed_ms = (time.perf_counter() - start_time) * 1000
-            return PSOResult(path=fallback, fitness=f, iteration=0, computation_time_ms=elapsed_ms)
+            actual_seed = self._actual_seed if hasattr(self, '_actual_seed') else None
+            return PSOResult(path=fallback, fitness=f, iteration=0, computation_time_ms=elapsed_ms, seed_used=actual_seed)
 
         # gbest init
         gbest_particle = min(particles, key=lambda p: p.fitness)
@@ -258,7 +263,7 @@ class ParticleSwarmOptimization:
 
         elapsed_ms = (time.perf_counter() - start_time) * 1000
         print(f"[PSO] Sonuç: path={gbest_path[:5]}...{gbest_path[-2:] if len(gbest_path)>5 else ''}, len={len(gbest_path)}, fitness={gbest_fitness:.4f}")
-        return PSOResult(path=gbest_path, fitness=gbest_fitness, iteration=best_iteration, computation_time_ms=elapsed_ms)
+        return PSOResult(path=gbest_path, fitness=gbest_fitness, iteration=best_iteration, computation_time_ms=elapsed_ms, seed_used=self._actual_seed)
 
 
 

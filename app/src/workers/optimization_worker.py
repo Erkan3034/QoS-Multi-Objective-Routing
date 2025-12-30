@@ -103,7 +103,8 @@ class OptimizationWorker(QThread):
                 resource_cost=metrics.resource_cost,
                 weighted_cost=metrics.weighted_cost,
                 computation_time_ms=result.computation_time_ms,
-                min_bandwidth=metrics.min_bandwidth
+                min_bandwidth=metrics.min_bandwidth,
+                seed_used=getattr(result, 'seed_used', None)
             )
             
             self.finished.emit(opt_result)

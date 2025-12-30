@@ -76,11 +76,10 @@ Bu özellik, **MTTR (Mean Time To Recovery)** testleri için idealdir.
 
 ---
 
-### ILP Benchmark & Pareto Analizi
+### ILP Benchmark
 
-- **ILP Solver:** PuLP kütüphanesi ile optimal çözüm hesaplama
-- **Pareto Frontier:** Dominant olmayan çözüm kümesini bulma
-- **Optimality Gap:** Meta-sezgisel sonuçları optimal çözümle karşılaştırma
+- **ILP Solver:** PuLP kutuphanesi ile optimal cozum hesaplama
+- **Optimality Gap:** Meta-sezgisel sonuclari optimal cozumle karsilastirma
 
 ---
 
@@ -107,12 +106,12 @@ Bu özellik, **MTTR (Mean Time To Recovery)** testleri için idealdir.
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                      MainWindow                             │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │ControlPanel │  │ GraphWidget │  │ ResultsPanel        │ │
-│  │             │  │  (2D/3D)    │  │ ConvergenceWidget   │ │
-│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
-│         │                │                     │            │
-│         └────────────────┼─────────────────────┘            │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐  │
+│  │ControlPanel │  │ GraphWidget │  │ ResultsPanel        │  │
+│  │             │  │  (2D/3D)    │  │ ConvergenceWidget   │  │
+│  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘  │
+│         │                │                    │             │
+│         └────────────────┼────────────────────┘             │
 │                          ▼                                  │
 │              ┌───────────────────────┐                      │
 │              │  OptimizationWorker   │  ← QThread           │
@@ -245,10 +244,9 @@ QoS-Multi-Objective-Routing/
 │       ├── core/                    # Konfigürasyon
 │       │   └── config.py            # Tüm parametreler
 │       │
-│       ├── experiments/             # Deney framework'ü
-│       │   ├── experiment_runner.py # Toplu deney çalıştırıcı
-│       │   ├── ilp_solver.py        # ILP optimal çözüm
-│       │   ├── pareto_analyzer.py   # Pareto frontier analizi
+│       ├── experiments/             # Deney framework'u
+│       │   ├── experiment_runner.py # Toplu deney calistirici
+│       │   ├── ilp_solver.py        # ILP optimal cozum
 │       │   └── scalability_analyzer.py
 │       │
 │       ├── services/                # İş mantığı
@@ -292,18 +290,31 @@ Stokastik algoritmaların güvenilirliğini artırmak için N farklı seed ile N
 
 En iyi sonuç otomatik seçilir, istatistiksel analiz sağlanır.
 
-### Pareto Analizi
-
-Dominant olmayan çözüm kümesini görselleştirme:
-- Delay vs Reliability scatter plot
-- Pareto frontier çizimi
-- Trade-off analizi
-
 ### ILP Benchmark
 
-Meta-sezgisel sonuçları matematiksel optimal çözümle karşılaştırma:
+Meta-sezgisel sonuclari matematiksel optimal cozumle karsilastirma:
 - Optimality Gap (%) hesaplama
 - Solver: PuLP (CBC backend)
+
+### Reproducibility (Tekrarlanabilirlik)
+
+Tüm algoritmalar çalışma sırasında kullanılan seed değerini sonuç objesinde döndürür:
+
+```python
+result = ga.optimize(source=0, destination=249, weights=weights)
+print(f"Kullanılan seed: {result.seed_used}")
+
+# Aynı sonucu tekrar almak için:
+ga = GeneticAlgorithm(graph, seed=result.seed_used)
+result2 = ga.optimize(source=0, destination=249, weights=weights)
+# result.path == result2.path  # ✓ Aynı sonuç
+```
+
+**Desteklenen algoritmalar:**
+- `GAResult.seed_used` - Genetic Algorithm
+- `ACOResult.seed_used` - Ant Colony Optimization
+- `PSOResult.seed_used` - Particle Swarm Optimization
+- `SAResult.seed_used` - Simulated Annealing
 
 ### Ölçeklenebilirlik Analizi
 

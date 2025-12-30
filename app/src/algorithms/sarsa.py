@@ -33,6 +33,7 @@ class SARSAResult:
     episodes: int
     final_epsilon: float
     computation_time_ms: float
+    seed_used: Optional[int] = None  # Reproducibility için kullanılan seed
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -40,7 +41,8 @@ class SARSAResult:
             "total_reward": round(self.total_reward, 6),
             "episodes": self.episodes,
             "final_epsilon": round(self.final_epsilon, 6),
-            "computation_time_ms": round(self.computation_time_ms, 2)
+            "computation_time_ms": round(self.computation_time_ms, 2),
+            "seed_used": self.seed_used
         }
 
 
@@ -151,8 +153,10 @@ class SARSA:
             self._call_counter += 1
             seed_val = time_module.time_ns() % (2**31) + os.getpid() + self._call_counter
             random.seed(seed_val)
+            self._actual_seed = seed_val  # Track for result
             print(f"[SARSA] Stokastik mod - seed={seed_val}, call={self._call_counter}")
         else:
+            self._actual_seed = self._seed
             print(f"[SARSA] Deterministik mod - seed={self._seed}")
         
         # Q-table'ı sıfırla
@@ -207,7 +211,8 @@ class SARSA:
             total_reward=total_reward,
             episodes=self.episodes,
             final_epsilon=epsilon,
-            computation_time_ms=elapsed_time
+            computation_time_ms=elapsed_time,
+            seed_used=self._actual_seed
         )
     
     def _run_episode(

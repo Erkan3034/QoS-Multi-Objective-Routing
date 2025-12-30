@@ -43,6 +43,7 @@ class ExperimentRunner:
             alg_success_count = 0
             alg_bw_satisfaction_count = 0
             best_cost_for_alg = float('inf')
+            best_seed_for_alg = None  # Seed that produced best result
             
             total_runs_for_alg = len(test_cases) * self.n_repeats
             
@@ -62,11 +63,13 @@ class ExperimentRunner:
                             "destination": case.destination,
                             "bandwidth_requirement": case.bandwidth_requirement,
                             "failure_reason": res.get("failure_reason", "Bilinmeyen Hata"),
-                            "details": f"Süre: {res['time']:.2f}ms"
+                            "details": f"Süre: {res['time']:.2f}ms",
+                            "seed_used": res.get("seed_used")  # Reproducibility için seed
                         })
                     else:
                         if res['weighted_cost'] < best_cost_for_alg:
                             best_cost_for_alg = res['weighted_cost']
+                            best_seed_for_alg = res.get('seed_used')  # Track best seed
 
                 # Case stats (for this algorithm)
                 successful_runs = [r for r in case_runs if r['success']]
@@ -105,7 +108,8 @@ class ExperimentRunner:
                 "bandwidth_satisfaction_rate": bw_sat_rate,
                 "overall_avg_cost": avg_cost,
                 "overall_avg_time_ms": avg_time,
-                "best_cost": best_cost_for_alg if best_cost_for_alg != float('inf') else 0.0
+                "best_cost": best_cost_for_alg if best_cost_for_alg != float('inf') else 0.0,
+                "best_seed": best_seed_for_alg  # Seed of best run for reproducibility
             })
 
         end_total = time.time()
@@ -190,7 +194,8 @@ class ExperimentRunner:
                 "success": is_valid, 
                 "time": end_ms,
                 "weighted_cost": weighted_cost,
-                "failure_reason": reason if not is_valid else None
+                "failure_reason": reason if not is_valid else None,
+                "seed_used": getattr(result, 'seed_used', None)
             }
             
         except Exception as e:
@@ -199,5 +204,6 @@ class ExperimentRunner:
                 "success": False,
                 "time": end_ms,
                 "weighted_cost": float('inf'),
-                "failure_reason": f"Exception: {str(e)}"
+                "failure_reason": f"Exception: {str(e)}",
+                "seed_used": None
             }

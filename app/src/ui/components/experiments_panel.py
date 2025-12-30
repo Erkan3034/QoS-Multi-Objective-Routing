@@ -484,8 +484,6 @@ class ExperimentsPanel(QWidget):
     load_scenarios_requested = pyqtSignal()
     compare_two_requested = pyqtSignal(str, str)
     show_path_requested = pyqtSignal(list, str)
-    # New signals for advanced features
-    run_pareto_requested = pyqtSignal()  # Pareto optimality analysis
     run_ilp_benchmark_requested = pyqtSignal()  # ILP benchmark comparison
     
     def __init__(self, parent=None):
@@ -568,50 +566,6 @@ class ExperimentsPanel(QWidget):
         exp_layout.addWidget(self.scenarios_card)
         
         # -- BONUS FEATURES: Advanced Analysis Cards --
-        # Pareto Analysis Card
-        self.pareto_card = QFrame()
-        self.pareto_card.setStyleSheet("""
-            QFrame {
-                background-color: #1e293b;
-                border-radius: 12px;
-                border: 1px solid #10b981;
-            }
-        """)
-        pareto_layout = QVBoxLayout(self.pareto_card)
-        pareto_layout.setContentsMargins(15, 15, 15, 15)
-        
-        pareto_h = QHBoxLayout()
-        pareto_icon = QLabel("🎯")
-        pareto_icon.setStyleSheet("font-size: 16px;")
-        pareto_title = QLabel("Pareto Optimalite")
-        pareto_title.setStyleSheet("color: #10b981; font-weight: bold;")
-        pareto_badge = QLabel("EK PUAN")
-        pareto_badge.setStyleSheet("background: #10b981; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px;")
-        pareto_h.addWidget(pareto_icon)
-        pareto_h.addWidget(pareto_title)
-        pareto_h.addStretch()
-        pareto_h.addWidget(pareto_badge)
-        pareto_layout.addLayout(pareto_h)
-        
-        pareto_desc = QLabel("Çok amaçlı optimizasyonda Pareto sınırı analizi")
-        pareto_desc.setWordWrap(True)
-        pareto_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
-        pareto_layout.addWidget(pareto_desc)
-        
-        self.btn_pareto = QPushButton("🔍 Analiz Başlat")
-        self.btn_pareto.setCursor(Qt.PointingHandCursor)
-        self.btn_pareto.setStyleSheet("""
-            QPushButton {
-                background-color: #10b981; color: white; font-weight: bold;
-                border-radius: 6px; padding: 6px;
-            }
-            QPushButton:hover { background-color: #059669; }
-        """)
-        self.btn_pareto.clicked.connect(self.run_pareto_requested.emit)
-        pareto_layout.addWidget(self.btn_pareto)
-        
-        exp_layout.addWidget(self.pareto_card)
-        
         # ILP Benchmark Card
         self.ilp_card = QFrame()
         self.ilp_card.setStyleSheet("""
@@ -655,48 +609,6 @@ class ExperimentsPanel(QWidget):
         ilp_layout.addWidget(self.btn_ilp)
         
         exp_layout.addWidget(self.ilp_card)
-        
-        # -- Requirements Box --
-        self.req_box = QFrame()
-        self.req_box.setStyleSheet("background-color: #1e293b; border-radius: 8px;")
-        req_layout = QVBoxLayout(self.req_box)
-        req_layout.setContentsMargins(15, 15, 15, 15)
-        req_layout.setSpacing(10)
-        
-        h_row = QHBoxLayout()
-        icon_ok = QLabel("✓")
-        icon_ok.setAlignment(Qt.AlignCenter)
-        icon_ok.setFixedSize(24, 24)
-        icon_ok.setStyleSheet("color: #10b981; border: 2px solid #10b981; border-radius: 12px; font-weight: bold;")
-        h_row.addWidget(icon_ok)
-        
-        lbl_title = QLabel("Test Gereksinimleri:")
-        lbl_title.setStyleSheet("color: #cbd5e1; font-weight: bold; font-size: 13px;")
-        h_row.addWidget(lbl_title)
-        
-        h_row.addStretch()
-        req_layout.addLayout(h_row)
-        
-        requirements = [
-            "20+ farklı (S, D, B) örneği ✓",
-            "5 tekrar + istatistik ✓",
-            "Başarısız örnekler + gerekçe ✓",
-            "Çalışma süresi ✓",
-            "Ölçeklenebilirlik (opsiyonel) ✓"
-        ]
-        
-        for req in requirements:
-             r_row = QHBoxLayout()
-             dot = QLabel("•")
-             dot.setStyleSheet("color: #64748b;")
-             r_row.addWidget(dot)
-             lbl = QLabel(req)
-             lbl.setStyleSheet("color: #94a3b8; font-size: 12px;")
-             r_row.addWidget(lbl)
-             r_row.addStretch()
-             req_layout.addLayout(r_row)
-
-        exp_layout.addWidget(self.req_box)
         
         main_layout.addWidget(self.experiments_container)
         main_layout.addStretch()

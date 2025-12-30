@@ -594,22 +594,14 @@ class GeneticAlgorithm:
         
         return population
 
-    def _generate_guided_path(self, source: int, destination: int, 
-                             bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
+    def _generate_path(self, source: int, destination: int, 
+                       bandwidth_demand: float = 0.0, guided: bool = False, max_len: int = 50) -> Optional[List[int]]:
         """
-        HEURİSTİC YOL OLUŞTURMA - Hub Düğümlere Yönel
-        ---------------------------------------------
+        YOL OLUŞTURMA - Guided (hub-yönelimli) veya Random (rastgele yürüyüş)
+        ---------------------------------------------------------------------
         
-        PRENSİP:
-        Yüksek degree'li düğümler (hub'lar) merkezî konumdadır.
-        Bu düğümlerden geçen yollar genellikle daha iyi bağlantıya sahiptir.
-        
-        RULET TEKERLEĞİ SEÇİMİ:
-        Komşular: A(degree=10), B(degree=5), C(degree=3)
-        Tekerlek: [0----10----15--18]
-        random(0,18) = 7 → A seçilir (7 < 10)
-        random(0,18) = 13 → B seçilir (10 < 13 < 15)
-        → Yüksek degree daha fazla seçilir ama garanti değil (stokastik keşif)
+        guided=True: Rulet tekerleği ile yüksek degree'li düğümlere yönelir
+        guided=False: Tamamen rastgele komşu seçimi (keşif için)
         """
         path, current, visited = [source], source, {source}
         
@@ -628,17 +620,21 @@ class GeneticAlgorithm:
                 path.append(destination)
                 return path
             
-            # Rulet tekerleği
-            degrees = [self.graph.degree(n) for n in neighbors]
-            total = sum(degrees)
-            if total > 0:
-                pick = random.uniform(0, total)
-                curr_sum = 0
-                for i, deg in enumerate(degrees):
-                    curr_sum += deg
-                    if curr_sum >= pick:
-                        current = neighbors[i]
-                        break
+            # Sonraki düğüm seçimi
+            if guided:
+                # Rulet tekerleği: Yüksek degree = yüksek seçilme şansı
+                degrees = [self.graph.degree(n) for n in neighbors]
+                total = sum(degrees)
+                if total > 0:
+                    pick = random.uniform(0, total)
+                    curr_sum = 0
+                    for i, deg in enumerate(degrees):
+                        curr_sum += deg
+                        if curr_sum >= pick:
+                            current = neighbors[i]
+                            break
+                else:
+                    current = random.choice(neighbors)
             else:
                 current = random.choice(neighbors)
             
@@ -646,26 +642,13 @@ class GeneticAlgorithm:
             visited.add(current)
         
         return None
-
-    def _generate_random_path(self, source: int, destination: int, 
-                             bandwidth_demand: float = 0.0, max_len: int = 50) -> Optional[List[int]]:
-        """RASTGELE YÜRÜYÜŞPath Generation - Keşif için"""
-        path, current, visited = [source], source, {source}
-        for _ in range(max_len):
-            if current == destination:
-                return path
-            neighbors = [n for n in self._neighbor_cache[current] 
-                        if n not in visited and 
-                        (bandwidth_demand == 0 or self.graph[current][n].get('bandwidth', 0) >= bandwidth_demand)]
-            if not neighbors:
-                return None
-            if destination in neighbors:
-                path.append(destination)
-                return path
-            current = random.choice(neighbors)
-            path.append(current)
-            visited.add(current)
-        return None
+    
+    # Backward compatibility wrappers
+    def _generate_guided_path(self, src, dst, bw=0.0, max_len=50):
+        return self._generate_path(src, dst, bw, guided=True, max_len=max_len)
+    
+    def _generate_random_path(self, src, dst, bw=0.0, max_len=50):
+        return self._generate_path(src, dst, bw, guided=False, max_len=max_len)
 
     def _evolve(self, scores, src, dst, diversity):
         """
@@ -699,12 +682,6 @@ class GeneticAlgorithm:
                     new_pop.append(c)
         return new_pop
 
-    def _select_mutation_operator(self, diversity: float):
-        """Diversity'e göre mutasyon tipi seç (düşük → agresif)"""
-        if diversity < 0.05: return self._mutate_segment_replacement
-        elif diversity < 0.15: return self._mutate_node_insertion
-        else: return self._mutate_node_replacement
-
     def _adjust_mutation_rate(self, diversity: float):
         """Diversity düştüğünde mutation rate artır (lokal optimumdan kaç)"""
         if diversity < self.diversity_threshold:
@@ -730,35 +707,54 @@ class GeneticAlgorithm:
         except ValueError:
             return list(p1), list(p2)
 
+    def _mutate(self, path: List[int], src: int, dst: int, diversity: float) -> List[int]:
+        """
+        BİRLEŞİK MUTASYON - Diversity'e göre strateji seçimi
+        ----------------------------------------------------
+        
+        diversity < 0.05: Segment replacement (agresif - kesit değiştir)
+        diversity < 0.15: Node insertion (detour ekle)
+        diversity >= 0.15: Node replacement (tek düğüm değiştir)
+        """
+        if diversity < 0.05 and len(path) >= 5:
+            # SEGMENT REPLACEMENT - Agresif mutasyon
+            idx1 = random.randint(1, len(path)-4)
+            idx2 = random.randint(idx1+2, len(path)-1) if len(path) > 4 else len(path)-1
+            try:
+                via = random.choice([n for n in self._neighbor_cache[path[idx1]] if n not in path[idx1+1:idx2]])
+                sp = self._cached_shortest_path(via, path[idx2])
+                if sp: return self._repair_path(path[:idx1+1] + list(sp) + path[idx2+1:], src, dst)
+            except: pass
+            
+        elif diversity < 0.15 and len(path) >= 3:
+            # NODE INSERTION - Detour ekle
+            idx = random.randint(1, len(path)-1)
+            candidates = set(self._neighbor_cache[path[idx-1]]) - set(path)
+            if candidates:
+                detour = random.choice(list(candidates))
+                sp = self._cached_shortest_path(detour, path[idx])
+                if sp: return path[:idx] + list(sp) + path[idx+1:]
+                
+        elif len(path) >= 4:
+            # NODE REPLACEMENT - Tek düğüm değiştir
+            idx = random.randint(1, len(path)-2)
+            opts = (set(self._neighbor_cache[path[idx-1]]) & set(self._neighbor_cache[path[idx+1]])) - set(path)
+            if opts: path[idx] = random.choice(list(opts))
+        
+        return path
+    
+    # Backward compatibility - eski operatör referansları için
+    def _select_mutation_operator(self, diversity: float):
+        return lambda path, src, dst: self._mutate(path, src, dst, diversity)
+    
     def _mutate_node_replacement(self, path, src, dst):
-        """Mutasyon: Bir düğümü komşusuyla değiştir"""
-        if len(path) < 4: return path
-        idx = random.randint(1, len(path)-2)
-        opts = (set(self._neighbor_cache[path[idx-1]]) & set(self._neighbor_cache[path[idx+1]])) - set(path)
-        if opts: path[idx] = random.choice(list(opts))
-        return path
-
+        return self._mutate(path, src, dst, 0.2)
+    
     def _mutate_segment_replacement(self, path, src, dst):
-        """Mutasyon: Kesit değiştir (agresif)"""
-        if len(path) < 5: return path
-        idx1, idx2 = random.randint(1, len(path)-4), random.randint(idx1+2, len(path)-1) if len(path) > 4 else len(path)-1
-        try:
-            via = random.choice([n for n in self._neighbor_cache[path[idx1]] if n not in path[idx1+1:idx2]])
-            sp = self._cached_shortest_path(via, path[idx2])
-            if sp: return self._repair_path(path[:idx1+1] + list(sp) + path[idx2+1:], src, dst)
-        except: pass
-        return path
-
+        return self._mutate(path, src, dst, 0.01)
+    
     def _mutate_node_insertion(self, path, src, dst):
-        """Mutasyon: Detour ekle"""
-        if len(path) < 3: return path
-        idx = random.randint(1, len(path)-1)
-        candidates = set(self._neighbor_cache[path[idx-1]]) - set(path)
-        if candidates:
-            detour = random.choice(list(candidates))
-            sp = self._cached_shortest_path(detour, path[idx])
-            if sp: return path[:idx] + list(sp) + path[idx+1:]
-        return path
+        return self._mutate(path, src, dst, 0.1)
 
     def _repair_path(self, path, src, dst):
         """Yol onarımı: Tekrar/kopukluk düzelt"""

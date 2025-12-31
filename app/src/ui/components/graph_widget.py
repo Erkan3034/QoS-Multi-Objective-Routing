@@ -1045,6 +1045,9 @@ class GraphWidget(QWidget):
             if (u, v) not in self.broken_edges and (v, u) not in self.broken_edges:
                 self._break_edge(u, v)
     
+
+
+    # =========== Kırılan linki graph widget'da göstermek için=====================0
     def _break_edge(self, u: int, v: int):
         if (u, v) in self.broken_edges or (v, u) in self.broken_edges:
             return
@@ -1064,8 +1067,11 @@ class GraphWidget(QWidget):
         
         import logging
         logger = logging.getLogger(__name__)
-        logger.info(f"🔴 Link {u}-{v} broken! Rerouting traffic...")
+        logger.info(f"🔴 Link {u}-{v} Kırıldı, yeniden rotalandırılıyor...")
     
+
+
+
     def _draw_broken_edge(self, u: int, v: int):
         if u not in self.positions or v not in self.positions:
             return

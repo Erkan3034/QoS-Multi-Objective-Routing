@@ -635,7 +635,7 @@ class MainWindow(QMainWindow):
         """Talep çifti seçildiğinde."""
         self.graph_widget.set_source_destination(source, dest)
             
-    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0, hyperparameters: Dict = None, n_runs: int = 1):
+    def _on_optimize(self, algorithm: str, source: int, dest: int, weights: Dict, bandwidth_demand: float = 0.0, hyperparameters: Dict = None, n_runs: int = 1, seed: int = None):
         if not self._check_graph(): return
         if source == dest:
             QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
@@ -656,13 +656,12 @@ class MainWindow(QMainWindow):
         self._multistart_all_results = []
         
         # Instantiate the algorithm class
-        # [FIX] Create fresh instance each time to ensure weights are properly applied
-        # Don't use seed to allow different results with same weights (stochastic behavior)
+        # seed: None = random, int = deterministic (reproducible)
         try:
             algorithm_name, AlgoClass = ALGORITHMS[algorithm]
             
             # Map Hyperparameters to Constructor Arguments
-            algo_kwargs = {'graph': self.graph_service.graph, 'seed': None}
+            algo_kwargs = {'graph': self.graph_service.graph, 'seed': seed}
             
             # Helper to map keys if they exist in hyperparameters
             def map_param(config_key, arg_name):

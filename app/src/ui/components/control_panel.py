@@ -21,7 +21,7 @@ class ControlPanel(QWidget):
     # Sinyaller
     generate_graph_requested = pyqtSignal(int, float, int)  # n_nodes, prob, seed
     load_csv_requested = pyqtSignal()  # CSV yükleme isteği
-    optimize_requested = pyqtSignal(str, int, int, dict, float, dict, int)  # algorithm, source, dest, weights, bandwidth_demand, hyperparameters, n_runs
+    optimize_requested = pyqtSignal(str, int, int, dict, float, dict, int, object)  # algorithm, source, dest, weights, bandwidth_demand, hyperparameters, n_runs, seed
     compare_requested = pyqtSignal(int, int, dict)  # source, dest, weights
     reset_requested = pyqtSignal()
     demand_selected = pyqtSignal(int, int, int)  # source, dest, demand_mbps
@@ -415,6 +415,38 @@ class ControlPanel(QWidget):
         multistart_layout.addStretch()
         opt_content_layout.addLayout(multistart_layout)
         
+        # Algorithm Seed (Reproducibility)
+        seed_algo_layout = QHBoxLayout()
+        seed_algo_layout.setSpacing(8)
+        
+        lbl_algo_seed = QLabel("Algoritma Seed:")
+        lbl_algo_seed.setStyleSheet("color: #94a3b8; font-weight: 500; font-size: 11px;")
+        lbl_algo_seed.setToolTip("Tekrarlanabilirlik için seed değeri (boş = rastgele)")
+        seed_algo_layout.addWidget(lbl_algo_seed)
+        
+        self.edit_algo_seed = QLineEdit()
+        self.edit_algo_seed.setPlaceholderText("Rastgele")
+        self.edit_algo_seed.setFixedHeight(26)
+        self.edit_algo_seed.setFixedWidth(80)
+        self.edit_algo_seed.setStyleSheet("""
+            QLineEdit {
+                background-color: #1f293b; 
+                color: #f8fafc;
+                border: 1px solid #334155;
+                border-radius: 6px;
+                padding: 0 8px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #3b82f6;
+            }
+        """)
+        self.edit_algo_seed.setToolTip("Boş bırakın = Rastgele seed, sayı girin = Sabit seed")
+        seed_algo_layout.addWidget(self.edit_algo_seed)
+        
+        seed_algo_layout.addStretch()
+        opt_content_layout.addLayout(seed_algo_layout)
+        
         # Optimize button
         self.btn_optimize = QPushButton("Optimize Et")
         self.btn_optimize.setFixedHeight(34) 
@@ -707,6 +739,10 @@ class ControlPanel(QWidget):
                 if d_src == self.spin_source.value() and d_dst == self.spin_dest.value():
                     demand = float(d_val)
         
+        # Seed: empty means random (None), otherwise parse the number
+        seed_text = self.edit_algo_seed.text().strip()
+        algo_seed = int(seed_text) if seed_text.isdigit() and int(seed_text) > 0 else None
+        
         self.optimize_requested.emit(
             self._get_algorithm_key(),
             self.spin_source.value(),
@@ -714,7 +750,8 @@ class ControlPanel(QWidget):
             self._get_weights(),
             demand,
             self.hyperparameters,
-            self.spin_multistart.value()  # n_runs for multi-start
+            self.spin_multistart.value(),  # n_runs for multi-start
+            algo_seed  # seed for reproducibility
         )
 
     

@@ -279,3 +279,5 @@ ga = GeneticAlgorithm(graph, seed=result.seed_used)
 | Erkan Turgut | Backend & Genetic & ACO algoritmaları. |
 | Bilal Alfa Guldi | PSO & SA algoritmaları. |
 | Diğer Ekip Üyeleri | UI & Test |
+| Ibrahim Alshujaa | UI & Entegrasyon. |
+| EmadAldean Hasan | UI & Entegrasyon. |

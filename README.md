@@ -150,13 +150,13 @@ QoS-Multi-Objective-Routing/
 │   ├── main.py                    # Giriş noktası
 │   ├── requirements.txt
 │   └── src/
-│       ├── algorithms/            # 6 optimizasyon algoritması
+│       ├── algorithms/            # 5 optimizasyon algoritması
 │       │   ├── genetic_algorithm.py
 │       │   ├── aco.py
 │       │   ├── pso.py
 │       │   ├── simulated_annealing.py
 │       │   ├── q_learning.py
-│       │   └── sarsa.py
+│       │   
 │       │
 │       ├── core/
 │       │   └── config.py          # Konfigürasyon
@@ -199,7 +199,6 @@ QoS-Multi-Objective-Routing/
 | [ACO Akış Şeması](./Documents/Aco_akis_semasi.md) | Karınca Kolonisi görsel açıklaması |
 | [Teknik Gereksinimler](./Documents/Teknik_Gereksinimler.md) | Proje gereksinimleri ve QoS tanımları |
 | [Test Senaryoları](./Documents/Test_Senaryoları_Deney_Duzenegi.md) | Deney düzeneği ve test planları |
-| [ILP Karşılaştırması](./Documents/ILP_Karsilastirmasi.md) | Optimal çözüm benchmark sonuçları |
 | [Ölçeklenebilirlik](./Documents/Olceklenebilirlik_Analizi.md) | Büyük graf performans analizi |
 | [Proje Yönetimi](./Documents/Proje_Yönetimi.md) | Görev dağılımı ve timeline |
 

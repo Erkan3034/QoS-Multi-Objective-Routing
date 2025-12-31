@@ -62,7 +62,6 @@ Orta tık ile kenar kırma, otomatik rota yeniden hesaplama.
 | Algoritma | Dosya | Açıklama |
 |-----------|-------|----------|
 | **Q-Learning** | `q_learning.py` | Off-policy değer öğrenme |
-| **SARSA** | `sarsa.py` | On-policy TD learning |
 
 > 📖 **Detaylı açıklama:** [GA Akış Şeması](./Documents/GA_akis_semasi.md) | [ACO Akış Şeması](./Documents/Aco_akis_semasi.md)
 

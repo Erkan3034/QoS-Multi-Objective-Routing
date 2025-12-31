@@ -17,6 +17,7 @@ OLUŞTURULAN RAPORLAR:
    - Bulunan yol
    - Graf görselleştirmesi (varsa)
    - Yakınsama grafiği (varsa)
+   - Seed bilgisi
 
 2. KARŞILAŞTIRMA RAPORU (generate_comparison_report):
    - Birden fazla algoritmanın sonuçlarını karşılaştırır

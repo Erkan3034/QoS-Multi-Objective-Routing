@@ -363,8 +363,7 @@ class ControlPanel(QWidget):
             ("Ant", "aco", "ant.svg"),
             ("Particle", "pso", "particle.svg"), 
             ("Simulated", "sa", "simulated.svg"),
-            ("Q-Learning", "qlearning", "qlearning.svg"), 
-            ("SARSA", "sarsa", "sarsa.svg")
+            ("Q-Learning", "qlearning", "qlearning.svg")
         ]
         
         icons_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "resources", "icons")

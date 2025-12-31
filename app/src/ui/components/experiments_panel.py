@@ -67,8 +67,7 @@ class AlgorithmComparisonDialog(QDialog):
             ("Karınca Kolonisi", "aco"),
             ("Parçacık Sürü (PSO)", "pso"),
             ("Benzetim Tavlama (SA)", "sa"),
-            ("Q-Learning", "qlearning"),
-            ("SARSA", "sarsa")
+            ("Q-Learning", "qlearning")
         ]
         
         self.combo1 = self._create_combo()
@@ -484,7 +483,6 @@ class ExperimentsPanel(QWidget):
     load_scenarios_requested = pyqtSignal()
     compare_two_requested = pyqtSignal(str, str)
     show_path_requested = pyqtSignal(list, str)
-    run_ilp_benchmark_requested = pyqtSignal()  # ILP benchmark comparison
     
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -564,51 +562,6 @@ class ExperimentsPanel(QWidget):
         self.scenarios_card = TestScenariosCard()
         self.scenarios_card.load_requested.connect(self.load_scenarios_requested.emit)
         exp_layout.addWidget(self.scenarios_card)
-        
-        # -- BONUS FEATURES: Advanced Analysis Cards --
-        # ILP Benchmark Card
-        self.ilp_card = QFrame()
-        self.ilp_card.setStyleSheet("""
-            QFrame {
-                background-color: #1e293b;
-                border-radius: 12px;
-                border: 1px solid #f59e0b;
-            }
-        """)
-        ilp_layout = QVBoxLayout(self.ilp_card)
-        ilp_layout.setContentsMargins(15, 15, 15, 15)
-        
-        ilp_h = QHBoxLayout()
-        ilp_icon = QLabel("🔬")
-        ilp_icon.setStyleSheet("font-size: 16px;")
-        ilp_title = QLabel("ILP Karşılaştırma")
-        ilp_title.setStyleSheet("color: #f59e0b; font-weight: bold;")
-        ilp_badge = QLabel("EK PUAN")
-        ilp_badge.setStyleSheet("background: #f59e0b; color: white; padding: 2px 6px; border-radius: 4px; font-size: 9px;")
-        ilp_h.addWidget(ilp_icon)
-        ilp_h.addWidget(ilp_title)
-        ilp_h.addStretch()
-        ilp_h.addWidget(ilp_badge)
-        ilp_layout.addLayout(ilp_h)
-        
-        ilp_desc = QLabel("Meta-sezgisel sonuçları optimal ILP çözümüyle kıyasla")
-        ilp_desc.setWordWrap(True)
-        ilp_desc.setStyleSheet("color: #94a3b8; font-size: 11px;")
-        ilp_layout.addWidget(ilp_desc)
-        
-        self.btn_ilp = QPushButton("📊 Benchmark Başlat")
-        self.btn_ilp.setCursor(Qt.PointingHandCursor)
-        self.btn_ilp.setStyleSheet("""
-            QPushButton {
-                background-color: #f59e0b; color: white; font-weight: bold;
-                border-radius: 6px; padding: 6px;
-            }
-            QPushButton:hover { background-color: #d97706; }
-        """)
-        self.btn_ilp.clicked.connect(self.run_ilp_benchmark_requested.emit)
-        ilp_layout.addWidget(self.btn_ilp)
-        
-        exp_layout.addWidget(self.ilp_card)
         
         main_layout.addWidget(self.experiments_container)
         main_layout.addStretch()

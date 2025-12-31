@@ -29,7 +29,6 @@ from src.ui.components.experiments_panel import ExperimentsPanel
 from src.ui.components.legend_widget import LegendWidget
 from src.ui.components.path_info_widget import PathInfoWidget
 from src.ui.components.test_results_dialog import TestResultsDialog
-from src.ui.components.convergence_widget import ConvergenceWidget
 from src.ui.components.scalability_dialog import ScalabilityDialog
 from src.ui.components.scenarios_dialog import ScenariosDialog
 
@@ -275,77 +274,6 @@ class ScalabilityWorker(QThread):
             self.error.emit(f"{str(e)}\n{traceback.format_exc()}")
 
 
-class ILPBenchmarkWorker(QThread):
-    """ILP benchmark thread'i - UI donmasını önler."""
-    
-    finished = pyqtSignal(dict)  # Benchmark sonuçları
-    progress = pyqtSignal(str)
-    error = pyqtSignal(str)
-    
-    def __init__(self, graph, source, destination, weights):
-        super().__init__()
-        self.graph = graph
-        self.source = source
-        self.destination = destination
-        self.weights = weights
-        print(f"[ILPWorker] Oluşturuldu: {source} -> {destination}, weights={weights}")
-        
-    def run(self):
-        try:
-            print("[ILPWorker] Thread başlatıldı...")
-            self.progress.emit("ILP çözümü hesaplanıyor...")
-            
-            print("[ILPWorker] ILP modülleri import ediliyor...")
-            from src.experiments.ilp_solver import ILPSolver, ILPBenchmark
-            from src.algorithms import ALGORITHMS
-            
-            # ILP optimal çözümü
-            print("[ILPWorker] ILP solver oluşturuluyor...")
-            solver = ILPSolver(self.graph)
-            
-            print(f"[ILPWorker] ILP çözümü hesaplanıyor ({self.source} -> {self.destination})...")
-            ilp_result = solver.solve(self.source, self.destination, self.weights)
-            print(f"[ILPWorker] ILP sonucu: cost={ilp_result.optimal_cost:.4f}, status={ilp_result.status}")
-            
-            self.progress.emit("Algoritmalar karşılaştırılıyor...")
-            
-            # Tüm algoritmalarla karşılaştır
-            benchmark = ILPBenchmark(self.graph)
-            comparisons = []
-            
-            for key, (name, AlgoClass) in ALGORITHMS.items():
-                try:
-                    print(f"[ILPWorker] {name} test ediliyor...")
-                    self.progress.emit(f"{name} test ediliyor...")
-                    algo = AlgoClass(graph=self.graph)
-                    result = algo.optimize(
-                        source=self.source, 
-                        destination=self.destination, 
-                        weights=self.weights
-                    )
-                    comparison = benchmark.compare_with_algorithm(
-                        result, self.source, self.destination, self.weights
-                    )
-                    comparison["algorithm"] = name
-                    comparisons.append(comparison)
-                    print(f"[ILPWorker] {name}: gap={comparison['optimality_gap_percent']:.2f}%")
-                except Exception as ex:
-                    print(f"[ILPWorker] {name} HATA: {str(ex)}")
-            
-            print("[ILPWorker] Tüm karşılaştırmalar tamamlandı, signal emit ediliyor...")
-            self.finished.emit({
-                "ilp_result": ilp_result,
-                "comparisons": comparisons,
-                "source": self.source,
-                "destination": self.destination
-            })
-            print("[ILPWorker] Signal emit edildi!")
-            
-        except Exception as e:
-            import traceback
-            error_msg = f"ILP benchmark hatası:\n{str(e)}\n{traceback.format_exc()}"
-            print(f"[ILPWorker] HATA: {error_msg}")
-            self.error.emit(error_msg)
 
 class MainWindow(QMainWindow):
     """Ana uygulama penceresi."""
@@ -500,12 +428,6 @@ class MainWindow(QMainWindow):
         self.results_panel = ResultsPanel()
         right_layout.addWidget(self.results_panel, 3)  # Stretch factor 3 (gives priority but allows shrinking)
         
-        # [LIVE CONVERGENCE PLOT] Convergence widget for GA progress visualization
-        # Give it more space with minimum height
-        self.convergence_widget = ConvergenceWidget()
-        self.convergence_widget.setMinimumHeight(220)  # Ensure adequate height
-        right_layout.addWidget(self.convergence_widget, 2)  # Stretch factor 2
-        
         # Experiments Panel (Bottom) - Fixed size when visible
         self.experiments_panel = ExperimentsPanel()
         self.experiments_panel.hide()  # Hidden by default
@@ -564,8 +486,6 @@ class MainWindow(QMainWindow):
         self.experiments_panel.load_scenarios_requested.connect(self._on_load_test_scenarios)
         self.experiments_panel.compare_two_requested.connect(self._on_compare_two_algorithms)
         self.experiments_panel.show_path_requested.connect(self._on_show_path_requested)
-        # Advanced features
-        self.experiments_panel.run_ilp_benchmark_requested.connect(self._on_run_ilp_benchmark)
         
         # Graph widget
         self.graph_widget.node_clicked.connect(self._on_node_clicked)
@@ -729,10 +649,6 @@ class MainWindow(QMainWindow):
         
         self.graph_widget.set_source_destination(source, dest)
         
-        # [LIVE CONVERGENCE PLOT] Use generic OptimizationWorker for ALL algorithms
-        # Reset convergence plot for new optimization
-        self.convergence_widget.reset_plot()
-        
         # Store multi-start info for result handler
         self._multistart_n_runs = n_runs
         self._multistart_current_run = 0
@@ -827,9 +743,6 @@ class MainWindow(QMainWindow):
             bandwidth_demand=bandwidth_demand
         )
         
-        # Connect progress signal to convergence widget (works for all algorithms now)
-        self.current_worker.progress_data.connect(self.convergence_widget.update_plot)
-        
         self.current_worker.finished.connect(self._on_optimization_finished)
         self.current_worker.error.connect(self._on_error)
         self.current_worker.start()
@@ -860,7 +773,6 @@ class MainWindow(QMainWindow):
                     weights=self._multistart_weights,
                     bandwidth_demand=self._multistart_bandwidth
                 )
-                self.current_worker.progress_data.connect(self.convergence_widget.update_plot)
                 self.current_worker.finished.connect(self._on_optimization_finished)
                 self.current_worker.error.connect(self._on_error)
                 self.current_worker.start()
@@ -1093,9 +1005,6 @@ class MainWindow(QMainWindow):
         self.results_panel.clear()
         self.path_info_widget.hide()
         self.experiments_panel.hide()
-        # [LIVE CONVERGENCE PLOT] Reset and hide convergence widget
-        self.convergence_widget.reset_plot()
-        self.convergence_widget.hide()
         
         # Reset Header Stats
         self.header_widget.update_stats(0, 0, False)
@@ -1145,59 +1054,7 @@ class MainWindow(QMainWindow):
         dialog.exec_()
 
 
-    def _on_run_ilp_benchmark(self):
-        """ILP benchmark karşılaştırması başlat (QThread ile)."""
-        if not self._check_graph():
-            QMessageBox.warning(self, "Uyarı", "Önce bir graf yükleyin veya oluşturun!")
-            return
-        
-        source = self.control_panel.spin_source.value()
-        dest = self.control_panel.spin_dest.value()
-        weights = self.control_panel._get_weights()
-        
-        if source == dest:
-            QMessageBox.warning(self, "Uyarı", "Kaynak ve hedef farklı olmalı!")
-            return
-        
-        # UI feedback
-        self.status_bar.showMessage("ILP benchmark başlatılıyor...")
-        self.experiments_panel.btn_ilp.setEnabled(False)
-        self.experiments_panel.btn_ilp.setText("Benchmark...")
-        
-        # Start worker thread
-        self.current_worker = ILPBenchmarkWorker(
-            self.graph_service.graph,
-            source,
-            dest,
-            weights
-        )
-        self.current_worker.progress.connect(lambda msg: self.status_bar.showMessage(msg))
-        self.current_worker.finished.connect(self._on_ilp_finished)
-        self.current_worker.error.connect(self._on_ilp_error)
-        self.current_worker.start()
-    
-    def _on_ilp_finished(self, data):
-        """ILP benchmark tamamlandığında."""
-        print("[MainWindow] _on_ilp_finished çağrıldı!")
-        
-        # Reset button
-        self.experiments_panel.btn_ilp.setEnabled(True)
-        self.experiments_panel.btn_ilp.setText("📊 Benchmark Başlat")
-        
-        self.status_bar.showMessage("ILP benchmark tamamlandı!", 5000)
-        
-        # Yeni dialog ile göster
-        from src.ui.components.ilp_benchmark_dialog import ILPBenchmarkDialog
-        dialog = ILPBenchmarkDialog(data, self)
-        dialog.exec_()
-    
-    def _on_ilp_error(self, error_msg):
-        """ILP benchmark hata durumu."""
-        self.experiments_panel.btn_ilp.setEnabled(True)
-        self.experiments_panel.btn_ilp.setText("📊 Benchmark Başlat")
-        self.status_bar.showMessage("ILP benchmark başarısız!", 3000)
-        QMessageBox.critical(self, "Hata", error_msg)
-    
+
     # =========================================================================
     # PDF EXPORT HANDLERS
     # =========================================================================

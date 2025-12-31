@@ -48,7 +48,7 @@ class Settings(BaseSettings):
     ACO_Q: float = 100.0
     
     # Particle Swarm Optimization
-    PSO_N_PARTICLES: int = 30
+    PSO_N_PARTICLES: int = 30 
     PSO_N_ITERATIONS: int = 100
     PSO_W: float = 0.7
     PSO_C1: float = 1.5
@@ -68,13 +68,6 @@ class Settings(BaseSettings):
     QL_EPSILON_END: float = 0.01
     QL_EPSILON_DECAY: float = 0.995
     
-    # SARSA
-    SARSA_EPISODES: int = 5000
-    SARSA_LEARNING_RATE: float = 0.1
-    SARSA_DISCOUNT_FACTOR: float = 0.95
-    SARSA_EPSILON_START: float = 1.0
-    SARSA_EPSILON_END: float = 0.01
-    SARSA_EPSILON_DECAY: float = 0.995
 
     # Experiments
     EXPERIMENT_N_REPEATS: int = 5

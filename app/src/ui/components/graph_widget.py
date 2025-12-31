@@ -138,13 +138,47 @@ class GraphWidget(QWidget):
         if OPENGL_AVAILABLE:
             self.view_3d = gl.GLViewWidget()
             # Darker blue-gray background for better contrast
-            self.view_3d.setBackgroundColor(QColor(15, 20, 30, 255))
+            self.view_3d.setBackgroundColor(QColor(8, 12, 21, 255))
             self.view_3d.setCameraPosition(distance=40, elevation=30, azimuth=45)
             
-            # Grid with subtle color - draw behind everything
+            # ============================================================
+            # STARFIELD EFFECT - Yıldız Alanı Arkaplanı
+            # ============================================================
+            n_stars = 600  # Daha fazla yıldız
+            
+            # Yıldızları çok geniş bir alan içinde dağıt (uzak arkaplan)
+            star_positions = np.zeros((n_stars, 3))
+            star_positions[:, 0] = np.random.uniform(-150, 150, n_stars)  # X (daha geniş)
+            star_positions[:, 1] = np.random.uniform(-150, 150, n_stars)  # Y (daha geniş)
+            star_positions[:, 2] = np.random.uniform(-80, 120, n_stars)   # Z (daha geniş)
+            
+            # Yıldız boyutları (daha küçük = daha uzak görünüm)
+            star_sizes = np.random.uniform(1, 4, n_stars)
+            star_colors = np.zeros((n_stars, 4))
+            
+            for i in range(n_stars):
+                alpha = np.random.uniform(0.4, 1.0)
+                rand = np.random.random()
+                if rand > 0.7:
+                    star_colors[i] = [0.6, 0.7, 1.0, alpha]  # Mavi
+                elif rand > 0.4:
+                    star_colors[i] = [1.0, 0.9, 0.6, alpha]  # Sarı
+                else:
+                    star_colors[i] = [1.0, 1.0, 1.0, alpha]  # Beyaz
+            
+            self.starfield = gl.GLScatterPlotItem(
+                pos=star_positions,
+                color=star_colors,
+                size=star_sizes,
+                pxMode=True
+            )
+            self.starfield.setGLOptions('opaque')
+            self.view_3d.addItem(self.starfield)
+            
+            # Grid with subtle color - draw behind graph but in front of stars
             g = gl.GLGridItem()
             g.scale(3, 3, 1)
-            g.setDepthValue(100)  # High value = draw behind
+            g.setDepthValue(100)  # High value = draw behind graph
             self.view_3d.addItem(g)
             
             self.container_3d = QWidget()
@@ -399,19 +433,28 @@ class GraphWidget(QWidget):
         else:
             self.stack.setCurrentIndex(0)
             
+            # [FIX] Bring controls container to front after switching back to 2D
+            # This fixes the bug where buttons become unclickable after 3D->2D switch
+            self.controls_container.raise_()
+            self.controls_container.show()
+            
             # Reinitialize particles for 2D
             if self.path and len(self.path) >= 2:
                 self._init_particles()
     
     def _clear_3d_view(self):
-        """Clear all items from 3D view except grid."""
+        """Clear all items from 3D view except grid and starfield."""
         if not self.view_3d:
             return
         
         items_to_remove = []
         for item in self.view_3d.items:
-            if not isinstance(item, gl.GLGridItem):
-                items_to_remove.append(item)
+            # Grid ve starfield'ı koru
+            if isinstance(item, gl.GLGridItem):
+                continue
+            if hasattr(self, 'starfield') and item == self.starfield:
+                continue
+            items_to_remove.append(item)
         
         for item in items_to_remove:
             self.view_3d.removeItem(item)

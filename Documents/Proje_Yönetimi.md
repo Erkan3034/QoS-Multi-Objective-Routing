@@ -8,16 +8,16 @@
 | Özellik | Değer |
 |---------|-------|
 | **Proje** | QoS Odaklı Çok Amaçlı Rotalama (Meta-Sezgisel ve RL Yaklaşımları) |
-| **Ekip Büyüklüğü** | 9 Kişi |
+| **Ekip Büyüklüğü** | 8 Kişi |
 | **Süre** | 5 Hafta |
-| **Teslimat Türü** | Web arayüzü yazılımı + Rapor |
+| **Teslimat Türü** | Masaüstü uygulama yazılımı + Rapor |
 
 ### Amaçlar (Goals)
 
 | # | Amaç | Açıklama |
 |---|------|----------|
 | 1 | **Simülasyon Ortamı** | 250 düğümlü, %40 yoğunluklu (Erdős-Rényi) gerçekçi bir ağ topolojisi oluşturmak |
-| 2 | **Algoritma Çeşitliliği** | Dijkstra (Referans), Genetik Algoritma (GA), Karınca Kolonisi (ACO) ve Q-Learning (RL) algoritmalarını entegre etmek |
+| 2 | **Algoritma Çeşitliliği** | Dijkstra (Referans), Genetik Algoritma (GA), Karınca Kolonisi (ACO) ve Q-Learning (RL), PSO, SA gibi algoritmaları entegre etmek |
 | 3 | **Çok Amaçlı Optimizasyon** | Gecikme (Delay), Güvenilirlik (Reliability) ve Maliyet/Kullanım metriklerini aynı anda optimize eden Pareto-Optimal rotalar bulmak |
 | 4 | **Performans** | Algoritmaların makul sürede (örn. <10sn) sonuç vermesini sağlamak |
 
@@ -61,7 +61,7 @@ Ekip **3 ana "Squad"a** bölünmüştür.
 
 | Rol | Görev |
 |-----|-------|
-| **Algo Lead (GA Uzmanı)** | Genetik Algoritma implementasyonu |
+| **Algo Lead )** | Genetik Algoritma implementasyonu |
 | **AI Engineer (RL)** | Q-Learning ajanı ve ortam (env) tasarımı |
 | **Optimization Eng (ACO)** | Karınca Kolonisi algoritması |
 | **Math/Logic Dev** | Algoritmaların hiperparametre optimizasyonu ve Dijkstra entegrasyonu |

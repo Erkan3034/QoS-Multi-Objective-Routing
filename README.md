@@ -33,7 +33,6 @@ Stokastik algoritmalar farklı seed'lerle N kez çalıştırılıp en iyi sonuç
 | Özellik | Açıklama |
 |---------|----------|
 | **2D/3D Toggle** | OpenGL destekli 3D görünüm |
-| **Convergence Plot** | Canlı yakınsama grafiği |
 | **Packet Animation** | Yol üzerinde animasyon |
 | **Interactive Graph** | Hover ile detay görüntüleme |
 
@@ -135,7 +134,7 @@ python main.py
 
 4. **Optimizasyon**
    - Algoritma seç → "Optimize Et"
-   - Yakınsama grafiğini izle
+   
 
 5. **Sonuç**
    - Bulunan yol sarı renkte

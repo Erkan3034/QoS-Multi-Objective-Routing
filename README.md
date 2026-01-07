@@ -276,8 +276,11 @@ ga = GeneticAlgorithm(graph, seed=result.seed_used)
 
 | İsim | Görev |
 |------|-------|
-| Erkan Turgut | Backend & Genetic & ACO algoritmaları. |
+| Erkan Turgut | Topoloji & Genetic & ACO algoritmaları. |
 | Bilal Alfa Guldi | PSO & SA algoritmaları. |
-| Diğer Ekip Üyeleri | UI & Test |
 | Ibrahim Alshujaa | UI & Entegrasyon. |
 | EmadAldean Hasan | UI & Entegrasyon. |
+| Vugar Muradov | Chaos Monkey & Hover App |
+
+
+

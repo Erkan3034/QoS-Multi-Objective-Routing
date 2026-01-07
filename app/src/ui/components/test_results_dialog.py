@@ -205,7 +205,30 @@ class TestResultsDialog(QDialog):
                 with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
                     writer = csv.writer(f)
                     
-                    # === BÖLÜM 1: Algoritma Özet Tablosu ===
+                    # === BÖLÜM 1: ÖZET İSTATİSTİKLER ===
+                    writer.writerow(["=== ÖZET İSTATİSTİKLER ==="])
+                    writer.writerow(["Test Sayısı", "Toplam Süre (s)", "Başarısız Test Sayısı", "Zaman Damgası"])
+                    timestamp = self.result_data.get("timestamp", "-")
+                    if timestamp and len(timestamp) > 19:
+                        timestamp = timestamp[:19].replace("T", " ")
+                    writer.writerow([
+                        self.result_data.get("n_test_cases", 0),
+                        self.result_data.get("total_time_sec", 0),
+                        self.result_data.get("failure_report", {}).get("total_failures", 0),
+                        timestamp
+                    ])
+                    
+                    # En iyi algoritma bilgisi
+                    comparison = self.result_data.get("comparison_table", [])
+                    if comparison:
+                        best = comparison[0]
+                        writer.writerow([])
+                        writer.writerow(["En İyi Algoritma", best['algorithm']])
+                        writer.writerow(["Ortalama Maliyet", f"{best['overall_avg_cost']:.4f}"])
+                        writer.writerow(["Başarı Oranı", f"%{best['success_rate']*100:.1f}"])
+                    
+                    # === BÖLÜM 2: Algoritma Özet Tablosu ===
+                    writer.writerow([])
                     writer.writerow(["=== ALGORITMA ÖZET KARŞILAŞTIRMASI ==="])
                     writer.writerow([
                         "Algoritma", "Başarı Oranı", "Bant Genişliği Memnuniyeti", 
@@ -222,13 +245,37 @@ class TestResultsDialog(QDialog):
                             str(row.get('best_seed', '-')) if row.get('best_seed') else '-'
                         ])
                     
-                    # === BÖLÜM 2: Senaryo Bazlı Detaylar ===
-                    writer.writerow([])  # Boş satır
+                    # === BÖLÜM 3: ALGORİTMA RANKING ===
+                    ranking_data = self.result_data.get("ranking_summary", {})
+                    if ranking_data:
+                        writer.writerow([])
+                        writer.writerow(["=== ALGORİTMA RANKING ==="])
+                        writer.writerow(["Algoritma", "1. Sıra", "2. Sıra", "3. Sıra", "4. Sıra", "5. Sıra", "Toplam Kazanma"])
+                        
+                        # Kazanma sayısına göre sırala
+                        sorted_ranking = sorted(
+                            ranking_data.items(),
+                            key=lambda x: x[1].get("1st", 0),
+                            reverse=True
+                        )
+                        for algo_name, ranks in sorted_ranking:
+                            writer.writerow([
+                                algo_name,
+                                ranks.get("1st", 0),
+                                ranks.get("2nd", 0),
+                                ranks.get("3rd", 0),
+                                ranks.get("4th", 0),
+                                ranks.get("5th", 0),
+                                ranks.get("total_wins", 0)
+                            ])
+                    
+                    # === BÖLÜM 4: Senaryo Bazlı Detaylar ===
+                    writer.writerow([])
                     writer.writerow(["=== SENARYO BAZLI DETAYLAR ==="])
                     writer.writerow([
-                        "Senaryo", "Kaynak", "Hedef", "Bant Genişliği (Mbps)", 
+                        "Senaryo", "Profil", "Kaynak", "Hedef", "Bant Genişliği (Mbps)", 
                         "Algoritma", "Ort. Maliyet", "Std Sapma", "Min", "Max", 
-                        "Ort. Süre (ms)", "Başarı Oranı"
+                        "Ort. Süre (ms)", "Başarı Oranı", "Best Seed"
                     ])
                     
                     scenario_results = self.result_data.get("scenario_results", {})
@@ -237,6 +284,7 @@ class TestResultsDialog(QDialog):
                             avg_cost = algo_data.get('avg_cost')
                             writer.writerow([
                                 scenario.get('id', scenario_key),
+                                scenario.get('profile_name', 'Dengeli'),
                                 scenario.get('source', '-'),
                                 scenario.get('destination', '-'),
                                 scenario.get('bandwidth', '-'),
@@ -246,10 +294,41 @@ class TestResultsDialog(QDialog):
                                 f"{algo_data.get('min_cost', 0):.4f}" if algo_data.get('min_cost') else "-",
                                 f"{algo_data.get('max_cost', 0):.4f}" if algo_data.get('max_cost') else "-",
                                 f"{algo_data.get('avg_time_ms', 0):.2f}",
-                                f"{algo_data.get('success_rate', 0)*100:.0f}%"
+                                f"{algo_data.get('success_rate', 0)*100:.0f}%",
+                                str(algo_data.get('best_seed', '-')) if algo_data.get('best_seed') else '-'
                             ])
                     
-                QMessageBox.information(self, "Başarılı", "Sonuçlar CSV olarak kaydedildi!\n(Algoritma özeti + Senaryo detayları)")
+                    # === BÖLÜM 5: BAŞARISIZ TESTLER ===
+                    failures = self.result_data.get("failure_report", {}).get("details", [])
+                    if failures:
+                        writer.writerow([])
+                        writer.writerow(["=== BAŞARISIZ TESTLER ==="])
+                        writer.writerow([
+                            "Algoritma", "Test ID", "Kaynak", "Hedef", 
+                            "Bant Genişliği (Mbps)", "Neden", "Detay", "Seed"
+                        ])
+                        for fail in failures:
+                            writer.writerow([
+                                fail.get('algorithm', '-'),
+                                fail.get('test_case_id', '-'),
+                                fail.get('source', '-'),
+                                fail.get('destination', '-'),
+                                fail.get('bandwidth_requirement', '-'),
+                                fail.get('failure_reason', '-'),
+                                fail.get('details', '-'),
+                                fail.get('seed_used', '-')
+                            ])
+                    
+                QMessageBox.information(
+                    self, 
+                    "Başarılı", 
+                    "Sonuçlar CSV olarak kaydedildi!\n\nİçerik:\n"
+                    "• Özet İstatistikler\n"
+                    "• Algoritma Karşılaştırması\n"
+                    "• Algoritma Ranking\n"
+                    "• Senaryo Detayları\n"
+                    "• Başarısız Testler"
+                )
             except Exception as e:
                 QMessageBox.critical(self, "Hata", f"Kaydetme başarısız: {str(e)}")
 

@@ -1,7 +1,7 @@
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QTableWidget, 
     QTableWidgetItem, QHeaderView, QPushButton, QFrame, QGridLayout,
-    QLineEdit, QComboBox
+    QLineEdit, QComboBox, QFileDialog, QMessageBox
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFont, QColor, QKeyEvent
@@ -384,7 +384,7 @@ class ScenariosDialog(QDialog):
                 background-color: #1e293b;
             }
         """)
-        export_btn.setEnabled(False)  # Disabled for now
+        export_btn.clicked.connect(self._on_export_scenarios)
         footer_layout.addWidget(export_btn)
         
         close_btn = QPushButton("Kapat")
@@ -565,3 +565,53 @@ class ScenariosDialog(QDialog):
             item.setForeground(QColor(color))
         
         self.table.setItem(row, col, item)
+
+    def _on_export_scenarios(self):
+        """Test senaryolarını CSV olarak dışa aktar."""
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Senaryoları Dışa Aktar", "test_senaryolari.csv", "CSV Files (*.csv)"
+        )
+        if filename:
+            try:
+                import csv
+                with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+                    writer = csv.writer(f)
+                    
+                    # Header with statistics
+                    writer.writerow(["=== TEST SENARYOLARI ==="])
+                    writer.writerow(["Toplam Senaryo", len(self.scenarios)])
+                    writer.writerow(["Filtrelenen", len(self.filtered_scenarios)])
+                    writer.writerow([])
+                    
+                    # Column headers
+                    writer.writerow([
+                        "ID", "Kaynak (S)", "Hedef (D)", "Bant Genişliği (Mbps)",
+                        "Gecikme Ağırlığı", "Güvenilirlik Ağırlığı", "Kaynak Ağırlığı"
+                    ])
+                    
+                    # Data rows (filtered scenarios)
+                    for scenario in self.filtered_scenarios:
+                        c_id = getattr(scenario, 'id', None) or scenario.get('id', '')
+                        src = getattr(scenario, 'source', None) or scenario.get('source', '')
+                        dst = getattr(scenario, 'destination', None) or scenario.get('destination', '')
+                        bw = getattr(scenario, 'bandwidth_requirement', None) or scenario.get('bandwidth_requirement', 0)
+                        weights = getattr(scenario, 'weights', {}) or scenario.get('weights', {})
+                        
+                        writer.writerow([
+                            c_id,
+                            src,
+                            dst,
+                            bw,
+                            f"{weights.get('delay', 0.33):.2f}",
+                            f"{weights.get('reliability', 0.33):.2f}",
+                            f"{weights.get('resource', 0.34):.2f}"
+                        ])
+                
+                QMessageBox.information(
+                    self, 
+                    "Başarılı", 
+                    f"Test senaryoları CSV olarak kaydedildi!\n\n"
+                    f"Kayıt: {len(self.filtered_scenarios)} senaryo"
+                )
+            except Exception as e:
+                QMessageBox.critical(self, "Hata", f"Kaydetme başarısız: {str(e)}")

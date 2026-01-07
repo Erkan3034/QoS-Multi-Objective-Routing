@@ -200,6 +200,7 @@ QoS-Multi-Objective-Routing/
 | [Test Senaryoları](./Documents/Test_Senaryoları_Deney_Duzenegi.md) | Deney düzeneği ve test planları |
 | [Ölçeklenebilirlik](./Documents/Olceklenebilirlik_Analizi.md) | Büyük graf performans analizi |
 | [Proje Yönetimi](./Documents/Proje_Yönetimi.md) | Görev dağılımı ve timeline |
+| [Seed ve Tekrarlanabilirlik](./Documents/Seed_ve_Tekrarlanabilirlik.md) | Seed yönetimi ve reproducibility |
 
 ---
 
@@ -259,6 +260,8 @@ print(f"Seed: {result.seed_used}")
 # Aynı sonucu tekrar almak için:
 ga = GeneticAlgorithm(graph, seed=result.seed_used)
 ```
+
+> 📖 **Detaylı bilgi:** [Seed ve Tekrarlanabilirlik Dokümantasyonu](./Documents/Seed_ve_Tekrarlanabilirlik.md)
 
 ---  
 

@@ -281,6 +281,8 @@ ga = GeneticAlgorithm(graph, seed=result.seed_used)
 | Ibrahim Alshujaa | UI & Entegrasyon. |
 | EmadAldean Hasan | UI & Entegrasyon. |
 | Vugar Muradov | Chaos Monkey & Hover App |
+| Meerimbek Talaibek Uulu | Q-Learning algoritması. |
+
 
 
 

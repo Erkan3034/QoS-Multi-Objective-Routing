@@ -405,7 +405,7 @@ ExperimentsWorker (QThread) oluşturulur ve başlatılır
    - **Background Thread** çalışır (UI donmaz)
    - Her algoritma (GA, ACO, PSO) için:
      - Her test case için n_repeats tekrar
-     - Toplam: 3 algoritma × 25 test case × 5 tekrar = **375 çalıştırma**
+     - Toplam: 5 algoritma × 25 test case × 5 tekrar = **375 çalıştırma**
 
 5. **Sonuçları Görüntüleme**
    - Deney tamamlandığında `TestResultsDialog` otomatik açılır

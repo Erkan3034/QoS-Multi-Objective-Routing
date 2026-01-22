@@ -31,7 +31,7 @@ class FooterWidget(QWidget):
 
         
         # Metin
-        text = "BSM307 QoS Routing • GA • ACO • PSO • SA • Q-Learning • SARSA"
+        text = "QoS Routing • GA • ACO • PSO • SA • Q-Learning"
         label = QLabel(text)
         label.setAlignment(Qt.AlignCenter)
         label.setStyleSheet("""

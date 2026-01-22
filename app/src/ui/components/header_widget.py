@@ -55,7 +55,7 @@ class HeaderWidget(QWidget):
             font-weight: 700;
         """)
         
-        subtitle = QLabel("BSM307 - Bilgisayar Ağları Projesi")
+        subtitle = QLabel("")
         subtitle.setStyleSheet("""
             color: #94a3b8; /* slate-400 */
             font-family: 'Segoe UI', 'sans-serif';

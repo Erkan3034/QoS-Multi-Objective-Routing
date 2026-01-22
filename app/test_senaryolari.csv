@@ -1,0 +1,6 @@
+﻿=== TEST SENARYOLARI ===
+Toplam Senaryo,25
+Filtrelenen,1
+
+ID,Kaynak (S),Hedef (D),Bant Genişliği (Mbps),Gecikme Ağırlığı,Güvenilirlik Ağırlığı,Kaynak Ağırlığı
+22,212,160,1000,0.20,0.70,0.10
